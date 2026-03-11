@@ -1,0 +1,28 @@
+Universe 檔數: 1072
+資料期間: 2009-01-01 ~ 2025-11-26
+訓練區間: 2020-01-01 ~ 2024-06-30
+驗證區間: 2024-07-01 ~ 2024-12-31
+測試區間: 2025-01-01 ~ 2025-11-25
+回測期間: 2025-01-01 ~ 2025-11-25
+策略累積報酬: 22.7785%
+基準累積報酬: 16.8312%
+有交易日數: 217
+risk.excess_return_without_cost.mean: 0.000285
+risk.excess_return_without_cost.std: 0.010384
+risk.excess_return_without_cost.annualized_return: 0.067759
+risk.excess_return_without_cost.information_ratio: 0.422978
+risk.excess_return_without_cost.max_drawdown: -0.178625
+risk.excess_return_with_cost.mean: 0.000159
+risk.excess_return_with_cost.std: 0.010379
+risk.excess_return_with_cost.annualized_return: 0.037858
+risk.excess_return_with_cost.information_ratio: 0.236445
+risk.excess_return_with_cost.max_drawdown: -0.182317
+indicator_summary.ffr: 1.000000
+indicator_summary.pa: 0.000000
+indicator_summary.pos: 0.000000
+indicator_daily_mean.ffr: 1.000000
+indicator_daily_mean.pa: 0.000000
+indicator_daily_mean.pos: 0.000000
+indicator_daily_mean.deal_amount: 205.645380
+indicator_daily_mean.value: 8074.952657
+indicator_daily_mean.count: 4.050459
