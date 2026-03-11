@@ -1,105 +1,151 @@
-# Qlib TW Workflow (Public)
+# Qlib TW Workflow
 
-Public-safe Taiwan equity workflow based on Qlib:
-- data pipeline
-- model training
-- backtesting and analysis
-- signal-to-order scripts for broker execution (credentials from environment variables only)
+Production-style Taiwan equity workflow built on Qlib.
 
-## Best Run Snapshot
+This repository contains:
+- data pipeline and feature handlers
+- model training and backtesting scripts
+- full best-run dashboard artifacts
+- order preparation and broker submission scripts (environment-variable credentials only)
 
-Best combo in this repo:
-- combo: `alpha158_lgb_pro_fil_ndrop2_topk50`
-- strategy cumulative return: `22.7785%`
-- benchmark cumulative return: `16.8312%`
-- annualized return with cost: `0.037858`
-- information ratio with cost: `0.236445`
-- max drawdown with cost: `-0.182317`
+## Best Configuration
 
-Source:
-- `outputs/best_run/reports/summary.txt`
+| Item | Value |
+|---|---:|
+| Combo | `alpha158_lgb_pro_fil_ndrop2_topk50` |
+| Universe size | `1072` |
+| Backtest period | `2025-01-01 ~ 2025-11-25` |
+| Strategy cumulative return | `22.7785%` |
+| Benchmark cumulative return | `16.8312%` |
+| Excess cumulative return | `+5.9473%` |
+| Annualized return (with cost) | `0.037858` |
+| Information ratio (with cost) | `0.236445` |
+| Max drawdown (with cost) | `-0.182317` |
 
-## Dashboard (Full Bundle)
+Reference file:
+- [outputs/best_run/reports/summary.txt](outputs/best_run/reports/summary.txt)
 
-This repo includes the full dashboard artifacts from the best run in:
+## Dashboard
+
+Best-run dashboard bundle is fully included under:
 - `outputs/best_run/figures/`
+- `outputs/best_run/figures/dashboard_snaps/` (static PNG snapshots extracted from `analysis_dashboard.html`)
 
-Main files:
-- `analysis_dashboard.html`
-- `model_performance.html`
-- `score_ic.html`
-- `risk_analysis.html`
-- `report_graph.html`
-- `equity_curve.png`
-- `daily_ic.png`
-- `turnover.png`
-- `turnover_count.png`
-
-Additional dashboard pages are also included:
-- `model_performance_2.html` to `model_performance_6.html`
-- `risk_analysis_2.html` to `risk_analysis_5.html`
-
-Preview images:
+Key diagnostics:
+- [equity_curve.png](outputs/best_run/figures/equity_curve.png): Strategy vs benchmark
+- [07_score_ic.png](outputs/best_run/figures/dashboard_snaps/07_score_ic.png): Daily information (Score IC)
+- [turnover.png](outputs/best_run/figures/turnover.png): Daily turnover
+- [13_model_performance_6.png](outputs/best_run/figures/dashboard_snaps/13_model_performance_6.png): model performance snapshot
 
 ![Equity Curve](outputs/best_run/figures/equity_curve.png)
-![Daily IC](outputs/best_run/figures/daily_ic.png)
+![Score IC](outputs/best_run/figures/dashboard_snaps/07_score_ic.png)
 ![Turnover](outputs/best_run/figures/turnover.png)
+![Model Performance](outputs/best_run/figures/dashboard_snaps/13_model_performance_6.png)
 
-How to view interactive dashboard locally:
+Interactive dashboard files:
+- [analysis_dashboard.html](outputs/best_run/figures/analysis_dashboard.html)
+- [model_performance.html](outputs/best_run/figures/model_performance.html)
+
+## Reports
+
+Best-run reports are in `outputs/best_run/reports/`.
+
+| File | Purpose |
+|---|---|
+| `summary.txt` | Final backtest summary |
+| `report_normal_1day.csv` | Daily portfolio record |
+| `port_analysis_1day.csv` | Portfolio risk/return metrics |
+| `positions_weight.csv` | Daily position weights |
+| `indicator_analysis_1day.csv` | Indicator summary |
+| `indicators_normal_1day.csv` | Daily indicator table |
+| `turnover_count.csv` | Count of changed instruments by day |
+| `pred_label.csv` | Score-label panel |
+| `daily_ic.csv` | Daily IC series |
+
+## Setup
+
 ```bash
-python3 -m http.server 8000
-# then open:
-# http://localhost:8000/outputs/best_run/figures/analysis_dashboard.html
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install pyqlib lightgbm xgboost catboost pandas numpy matplotlib plotly
 ```
 
-## Repository Layout
+## Workflow Commands
 
-- `scripts/Get_data_Tai.py`: market data preparation
-- `scripts/train_tw.py`: model training entrypoint
-- `scripts/backtest_tw.py`: backtest entrypoint
-- `scripts/workflow_by_code_tw.py`: end-to-end workflow and report generation
-- `scripts/custom_strategy.py`: bucket-weighted strategy
-- `scripts/custom_exchange.py`: TW execution/settlement simulation
-- `scripts/predict_and_prepare_orders.py`: generate top-k orders from trained model
-- `scripts/place_orders_from_csv.py`: submit orders from CSV (default dry-run)
-- `scripts/masterlink_trade.py`: manual single-order CLI
-- `scripts/test_masterlink_sdk.py`: SDK login smoke test
-- `configs/`: workflow config files
-- `outputs/best_run/`: exported report and dashboard artifacts
+### 1) Train models only
+
+```bash
+python3 scripts/train_tw.py --combo alpha158_lgb_pro_fil
+```
+
+### 2) Backtest using trained models
+
+```bash
+python3 scripts/backtest_tw.py \
+  --combo alpha158_lgb_pro_fil \
+  --n-drop 2 \
+  --topk 50 \
+  --strategy bucket \
+  --deal-price close
+```
+
+### 3) End-to-end run (train + backtest + export)
+
+```bash
+python3 scripts/workflow_by_code_tw.py \
+  --combo alpha158_lgb_pro_fil \
+  --n-drop 2 \
+  --topk 50 \
+  --strategy bucket
+```
 
 ## Order Execution Scripts
 
-The order scripts are included, but no credentials are stored in this repo.
+Included scripts:
+- `scripts/predict_and_prepare_orders.py`
+- `scripts/place_orders_from_csv.py`
+- `scripts/masterlink_trade.py`
+- `scripts/test_masterlink_sdk.py`
 
-Required environment variables:
+Create local env file:
+
+```bash
+cp .env.example .env.local
+```
+
+Required variables:
 - `MASTERLINK_ID`
 - `MASTERLINK_PASSWORD`
 - `MASTERLINK_CERT`
 - `MASTERLINK_CERT_PASSWORD`
 
-Example dry-run:
-```bash
-python3 scripts/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv
-```
-
-Example live submit:
-```bash
-python3 scripts/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv --live
-```
-
 Generate order list from model:
+
 ```bash
 python3 scripts/predict_and_prepare_orders.py --combo alpha158_lgb --topk 50 --strategy bucket
 ```
 
-## Security Policy
+Dry-run place orders from CSV:
 
-- Never commit `.env`, `.env.*`, or certificate files.
-- Never hardcode account/password/token in code.
-- Keep broker certificate files under local `secrets/` only.
-- Rotate credentials immediately if they were exposed in any previous repository.
+```bash
+python3 scripts/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv
+```
 
-## Notes
+Live place orders:
 
-- This is a public-safe snapshot. Large training artifacts and private runtime data are intentionally excluded.
-- Interactive HTML dashboards are stored in `outputs/best_run/figures/` for reproducibility.
+```bash
+python3 scripts/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv --live
+```
+
+## Repository Structure
+
+- `configs/` - model and handler config files
+- `scripts/` - training, backtest, workflow, strategy, exchange, and order scripts
+- `outputs/best_run/` - exported best-run reports and dashboards
+
+## Security
+
+- No real account, password, token, or certificate is stored in this repository.
+- `.env`, secret files, and certificate file types are blocked by `.gitignore`.
+- Rotate credentials immediately if previously exposed.
