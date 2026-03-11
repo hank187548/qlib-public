@@ -1,12 +1,12 @@
-Universe 檔數: 1072
-資料期間: 2009-01-01 ~ 2025-11-26
-訓練區間: 2020-01-01 ~ 2024-06-30
-驗證區間: 2024-07-01 ~ 2024-12-31
-測試區間: 2025-01-01 ~ 2025-11-25
-回測期間: 2025-01-01 ~ 2025-11-25
-策略累積報酬: 22.7785%
-基準累積報酬: 16.8312%
-有交易日數: 217
+Universe size: 1072
+Data period: 2009-01-01 ~ 2025-11-26
+Train range: 2020-01-01 ~ 2024-06-30
+Validation range: 2024-07-01 ~ 2024-12-31
+Test range: 2025-01-01 ~ 2025-11-25
+Backtest period: 2025-01-01 ~ 2025-11-25
+Strategy cumulative return: 22.7785%
+Benchmark cumulative return: 16.8312%
+Trading days: 217
 risk.excess_return_without_cost.mean: 0.000285
 risk.excess_return_without_cost.std: 0.010384
 risk.excess_return_without_cost.annualized_return: 0.067759

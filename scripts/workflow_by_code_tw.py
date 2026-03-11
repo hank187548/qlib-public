@@ -2,10 +2,10 @@
 """End-to-end Taiwan Qlib workflow without notebooks.
 
 This script mirrors the previous Jupyter notebook:
-1. 初始化台灣市場的 Qlib provider。
-2. 訓練 LightGBM 模型。
-3. 產生訊號並進行回測分析。
-4. 輸出報表 CSV 與圖形到指定資料夾。
+1. Initialize Qlib provider for Taiwan market.
+2. Train a LightGBM model.
+3. Generate signals and run backtest analysis.
+4. Export report CSVs and figures to the target folder.
 """
 
 import argparse
@@ -19,7 +19,7 @@ from typing import Dict, List
 
 import matplotlib
 
-matplotlib.use("Agg")  # 使用無頭模式繪圖
+matplotlib.use("Agg")  # Use headless plotting backend
 import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.io as pio
@@ -32,11 +32,11 @@ from qlib.workflow.record_temp import SignalRecord, PortAnaRecord
 from qlib.contrib.report import analysis_model, analysis_position
 
 # ---------------------------------------------------------------------------
-# 基本設定
+# Base settings
 # ---------------------------------------------------------------------------
 
 WORK_DIR = Path(__file__).resolve().parent.parent
-# 確保自訂模組 (scripts.custom_strategy) 可匯入
+# Ensure custom module (scripts.custom_strategy) is importable
 if str(WORK_DIR) not in sys.path:
     sys.path.append(str(WORK_DIR))
 PROVIDER_URI = WORK_DIR.joinpath("Data", "tw_data")
@@ -52,11 +52,11 @@ BASE_DATA_HANDLER_CONFIG: Dict[str, object] = {
     "fit_end_time": "2025-11-26",
 }
 
-# 近期訓練窗口（可視最新資料定期滑動）
+# Recent rolling training window
 SEGMENTS: Dict[str, tuple[str, str]] = {
-    "train": ("2020-01-01", "2024-06-30"),   # 約近 4.5 年
-    "valid": ("2024-07-01", "2024-12-31"),   # 近半年做超參數/停利驗證
-    # test 結束日設為倒數第二個交易日，避免 calendar 邊界溢位
+    "train": ("2020-01-01", "2024-06-30"),   # about 4.5 years
+    "valid": ("2024-07-01", "2024-12-31"),   # recent half-year for validation
+    # Set test end to the second last trading day to avoid calendar boundary overflow
     "test": ("2025-01-01", "2025-11-25"),
 }
 
@@ -95,7 +95,7 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
         "module_path": "qlib.contrib.model.catboost_model",
         "kwargs": {
             "loss_function": "RMSE",
-            "iterations": 800,  # 降低迭代避免爆記憶體
+            "iterations": 800,  # Reduce iterations to avoid memory pressure
             "learning_rate": 0.05,
             "depth": 8,
             "l2_leaf_reg": 3,
@@ -103,7 +103,7 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
             "bootstrap_type": "Bernoulli",
             "random_strength": 0.8,
             "leaf_estimation_iterations": 5,
-            # 強制走 CPU，限制執行緒，避免 GPU/記憶體 OOM
+            # Force CPU and cap threads to avoid GPU/memory OOM
             "task_type": "CPU",
             "thread_count": min(4, os.cpu_count() or 4),
         },
@@ -158,11 +158,11 @@ BASE_PORT_ANALYSIS_CONFIG: Dict[str, object] = {
         "class": "BucketWeightTopkDropout",
         "module_path": "scripts.custom_strategy",
         "kwargs": {
-            "model": None,  # 將於 runtime 指定
+            "model": None,  # assigned at runtime
             "dataset": None,
             "topk": 50,
             "n_drop": 5,
-            # 僅在對應方向檢查漲跌停：漲停只擋買、跌停只擋賣
+            # Check limit-up/down only for the matching direction: limit-up blocks buys, limit-down blocks sells
             "forbid_all_trade_at_limit": False,
         },
     },
@@ -173,18 +173,18 @@ BASE_PORT_ANALYSIS_CONFIG: Dict[str, object] = {
         "benchmark": BENCHMARK,
         "exchange_kwargs": {
             "freq": "day",
-            # 漲跌幅依前一日收盤價的 ±9.5% 判斷：漲停不可買但可賣，跌停不可賣但可買
+            # Use ±9.5% vs previous close to approximate price limits
             "limit_threshold": (
-                "$change >= 0.095 * Ref($close, 1)",   # 漲幅達 ~9.5% 視為漲停 → limit_buy
-                "$change <= -0.095 * Ref($close, 1)",  # 跌幅達 ~9.5% 視為跌停 → limit_sell
+                "$change >= 0.095 * Ref($close, 1)",   # Approx +9.5% as limit-up -> limit_buy
+                "$change <= -0.095 * Ref($close, 1)",  # Approx -9.5% as limit-down -> limit_sell
             ),
             "deal_price": "close",
-            # 元富電子交易 65 折：
-            # - 手續費 0.1425% * 0.65 ≈ 0.00092625（買、賣皆同）
-            # - 當沖/現股賣出證交稅 0.15% → 0.0015，併入 close_cost
-            # - 零股最低手續費 1 元（統一使用 min_cost=1 近似）
-            "open_cost": 0.00092625,   # 買進手續費（含折扣）
-            "close_cost": 0.00242625,  # 賣出手續費 + 0.15% 證交稅
+            # Broker fee discount assumptions:
+            # - Commission 0.1425% * 0.65 ~= 0.00092625 (both buy/sell)
+            # - Sell tax 0.15% -> 0.0015, merged into close_cost
+            # - Odd-lot minimum fee approximated by min_cost=1
+            "open_cost": 0.00092625,   # buy commission (discounted)
+            "close_cost": 0.00242625,  # sell commission + 0.15% tax
             "min_cost": 1,
             "trade_unit": 1,
         },
@@ -267,24 +267,24 @@ def parse_args() -> argparse.Namespace:
         "--strategy",
         choices=["bucket", "equal"],
         default="bucket",
-        help="bucket: 分桶配重 (預設 4/2/1)，equal: 傳統 TopkDropout 等權。",
+        help="bucket: bucketed weights (default 4/2/1); equal: classic TopkDropout equal-weight.",
     )
     parser.add_argument(
         "--deal-price",
         choices=["close", "open"],
         default="close",
-        help="成交價假設（回測用），預設 close，可改用 open 更接近隔日開盤成交假設。",
+        help="Execution price assumption for backtest; default close, use open for next-session open fill assumption.",
     )
     parser.add_argument(
         "--simulate-limit",
         action="store_true",
-        help="使用簡化限價模擬（觸價才成交），搭配 --limit-slippage。",
+        help="Enable simplified limit-order simulation (fill only if touched), with --limit-slippage.",
     )
     parser.add_argument(
         "--limit-slippage",
         type=float,
         default=0.01,
-        help="限價偏移（相對 base_price），預設 1%%。僅在 --simulate-limit 時生效。",
+        help="Limit price offset relative to base_price; default 1%%. Effective only with --simulate-limit.",
     )
     return parser.parse_args()
 
@@ -342,7 +342,7 @@ def _to_plotly_figures(obj) -> list:
         try:
             figures.append(obj)
         except Exception as err:
-            LOGGER.error('匯入 plotly figure 失敗: %s', err)
+            LOGGER.error('Failed to import plotly figure: %s', err)
         return figures
     if isinstance(obj, dict):
         if 'application/vnd.plotly.v1+json' in obj:
@@ -351,20 +351,20 @@ def _to_plotly_figures(obj) -> list:
             try:
                 figures.append(pio.from_json(json_payload))
             except Exception as err:
-                LOGGER.error('解析 plotly bundle 失敗: %s', err)
+                LOGGER.error('Failed to parse plotly bundle: %s', err)
             return figures
         if 'data' in obj and 'layout' in obj:
             try:
                 json_payload = json.dumps({'data': obj['data'], 'layout': obj['layout']})
                 figures.append(pio.from_json(json_payload))
             except Exception as err:
-                LOGGER.error('解析 plotly dict 失敗: %s', err)
+                LOGGER.error('Failed to parse plotly dict: %s', err)
             return figures
     if isinstance(obj, (list, tuple)):
         for item in obj:
             figures.extend(_to_plotly_figures(item))
         return figures
-    LOGGER.warning('無法解析 plotly 對象：%s', type(obj))
+    LOGGER.warning('Unable to parse plotly object:%s', type(obj))
     return figures
 
 
@@ -379,10 +379,10 @@ def export_plotly_section(name: str, obj) -> list:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             figure.write_html(str(file_path), include_plotlyjs='cdn')
-            LOGGER.info('Plotly 圖表已儲存：%s', file_path)
+            LOGGER.info('Saved Plotly chart:%s', file_path)
             saved.append((file_path, figure))
         except Exception as err:
-            LOGGER.error('儲存 plotly 圖表失敗 %s: %s', file_path, err)
+            LOGGER.error('Failed to save Plotly chart %s: %s', file_path, err)
     return saved
 
 def export_plotly_dashboard(sections: list) -> None:
@@ -415,7 +415,7 @@ def export_plotly_dashboard(sections: list) -> None:
             include_js = False
     html_parts.append("</body></html>")
     dashboard_path.write_text("\n".join(html_parts), encoding="utf-8")
-    LOGGER.info("Plotly 合併圖表已儲存：%s", dashboard_path)
+    LOGGER.info("Saved combined Plotly dashboard:%s", dashboard_path)
 
 def save_plotly(fig, path: Path) -> list:
     """Save Plotly figure to HTML file and return the parsed figures."""
@@ -426,25 +426,25 @@ def save_plotly(fig, path: Path) -> list:
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         primary.write_html(str(path), include_plotlyjs="cdn")
-        LOGGER.info("Plotly 圖表已儲存：%s", path)
+        LOGGER.info("Saved Plotly chart:%s", path)
     except Exception as err:
-        LOGGER.error("儲存 plotly 圖表失敗 %s: %s", path, err)
+        LOGGER.error("Failed to save Plotly chart %s: %s", path, err)
     return figures
 
 def save_figure(fig, path: Path) -> None:
     """Save Matplotlib figure safely."""
     if fig is None:
-        LOGGER.warning("收到空的 figure，跳過儲存：%s", path)
+        LOGGER.warning("Received empty figure, skip saving:%s", path)
         return
     if isinstance(fig, tuple):
-        # qlib 部分工具可能返回 (fig, axes) 組合
+        # Some qlib tools may return a (fig, axes) tuple
         fig = fig[0]
     if hasattr(fig, "figure") and fig.__class__.__name__ != "Figure":
         fig = fig.figure
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
-    LOGGER.info("圖表已儲存：%s", path)
+    LOGGER.info("Saved chart:%s", path)
 
 
 def dump_report_frames(
@@ -474,7 +474,7 @@ def dump_report_frames(
     analysis_path = REPORT_DIR.joinpath("port_analysis_1day.csv")
     report_df.to_csv(report_path)
     analysis_df.reset_index().to_csv(analysis_path, index=False)
-    LOGGER.info("報表 CSV 已輸出至 %s 與 %s", report_path, analysis_path)
+    LOGGER.info("Report CSV exported to %s and %s", report_path, analysis_path)
 
     # Export flat position weights
     records = []
@@ -488,33 +488,33 @@ def dump_report_frames(
     if records:
         weights_df = pd.DataFrame(records, columns=["datetime", "instrument", "weight"])
         weights_df.sort_values(["datetime", "instrument"]).to_csv(weights_path, index=False)
-        LOGGER.info("權重明細已輸出至 %s", weights_path)
+        LOGGER.info("Position weights exported to %s", weights_path)
     else:
-        LOGGER.warning("權重資料為空，未產生 positions_weight.csv")
+        LOGGER.warning("Position weight data is empty; positions_weight.csv not generated")
 
     if indicator_summary_df is not None:
         indicator_summary_path = REPORT_DIR.joinpath("indicator_analysis_1day.csv")
         indicator_summary_df.to_csv(indicator_summary_path)
-        LOGGER.info("指標摘要已輸出至 %s", indicator_summary_path)
+        LOGGER.info("Indicator summary exported to %s", indicator_summary_path)
     if indicator_daily_df is not None:
         indicator_daily_path = REPORT_DIR.joinpath("indicators_normal_1day.csv")
         indicator_daily_df.to_csv(indicator_daily_path)
-        LOGGER.info("指標時間序列已輸出至 %s", indicator_daily_path)
+        LOGGER.info("Indicator time series exported to %s", indicator_daily_path)
 
     # Summary text
     cumulative_return = (1 + report_df["return"]).prod() - 1
     benchmark_return = (1 + report_df["bench"]).prod() - 1
     trade_days = int((report_df["total_turnover"] > 0).sum())
     summary_lines = [
-        f"Universe 檔數: {len(universe)}",
-        f"資料期間: {data_handler_config['start_time']} ~ {data_handler_config['end_time']}",
-        f"訓練區間: {segments['train'][0]} ~ {segments['train'][1]}",
-        f"驗證區間: {segments['valid'][0]} ~ {segments['valid'][1]}",
-        f"測試區間: {segments['test'][0]} ~ {segments['test'][1]}",
-        f"回測期間: {port_config['backtest']['start_time']} ~ {port_config['backtest']['end_time']}",
-        f"策略累積報酬: {cumulative_return:.4%}",
-        f"基準累積報酬: {benchmark_return:.4%}",
-        f"有交易日數: {trade_days}",
+        f"Universe size: {len(universe)}",
+        f"Data period: {data_handler_config['start_time']} ~ {data_handler_config['end_time']}",
+        f"Train range: {segments['train'][0]} ~ {segments['train'][1]}",
+        f"Validation range: {segments['valid'][0]} ~ {segments['valid'][1]}",
+        f"Test range: {segments['test'][0]} ~ {segments['test'][1]}",
+        f"Backtest period: {port_config['backtest']['start_time']} ~ {port_config['backtest']['end_time']}",
+        f"Strategy cumulative return: {cumulative_return:.4%}",
+        f"Benchmark cumulative return: {benchmark_return:.4%}",
+        f"Trading days: {trade_days}",
     ]
     if isinstance(analysis_df, pd.DataFrame) and 'risk' in analysis_df.columns:
         risk_series = analysis_df['risk']
@@ -535,7 +535,7 @@ def dump_report_frames(
                     summary_lines.append(f"indicator_daily_mean.{col}: {val:.6f}")
     summary_path = REPORT_DIR.joinpath("summary.txt")
     summary_path.write_text("\n".join(summary_lines))
-    LOGGER.info("摘要統計已輸出至 %s", summary_path)
+    LOGGER.info("Summary stats exported to %s", summary_path)
 
     # Turnover count by symbol (how many instruments changed weight each day)
     turnover_records = []
@@ -594,7 +594,7 @@ def dump_report_frames(
     combined = pred_df.join(label_df, how="left").dropna()
     pred_label_path = REPORT_DIR.joinpath("pred_label.csv")
     combined.reset_index().to_csv(pred_label_path, index=False)
-    LOGGER.info("預測與標籤資料已輸出至 %s", pred_label_path)
+    LOGGER.info("Prediction/label data exported to %s", pred_label_path)
 
     def _calc_ic(group: pd.DataFrame) -> float:
         if group["score"].nunique() <= 1 or group["label"].nunique() <= 1:
@@ -618,19 +618,19 @@ def dump_report_frames(
     try:
         plotly_sections.append(("report_graph", analysis_position.report_graph(report_df, show_notebook=False)))
     except Exception as err:
-        LOGGER.error("分析圖 report_graph 生成失敗: %s", err)
+        LOGGER.error("Failed to generate report_graph: %s", err)
     try:
         plotly_sections.append(("risk_analysis", analysis_position.risk_analysis_graph(analysis_df, report_df, show_notebook=False)))
     except Exception as err:
-        LOGGER.error("分析圖 risk_analysis 生成失敗: %s", err)
+        LOGGER.error("Failed to generate risk_analysis: %s", err)
     try:
         plotly_sections.append(("score_ic", analysis_position.score_ic_graph(combined, show_notebook=False)))
     except Exception as err:
-        LOGGER.error("分析圖 score_ic 生成失敗: %s", err)
+        LOGGER.error("Failed to generate score_ic: %s", err)
     try:
         plotly_sections.append(("model_performance", analysis_model.model_performance_graph(combined, show_notebook=False)))
     except Exception as err:
-        LOGGER.error("分析圖 model_performance 生成失敗: %s", err)
+        LOGGER.error("Failed to generate model_performance: %s", err)
 
     plotly_saved = []
     for name, section in plotly_sections:
@@ -639,7 +639,7 @@ def dump_report_frames(
             plotly_saved.append((name, saved_entries))
     export_plotly_dashboard(plotly_saved)
 
-    LOGGER.info("報表與圖表生成完成")
+    LOGGER.info("Report and chart generation complete")
 
 
 def run_combo(
@@ -659,7 +659,7 @@ def run_combo(
     available = len(UNIVERSE)
     if max_instruments is None:
         LOGGER.info(
-            "=== 執行組合：%s (handler=%s, model=%s, instruments=%d) ===",
+            "=== Running combo: %s (handler=%s, model=%s, instruments=%d) ===",
             combo_name,
             handler_key,
             model_key,
@@ -667,7 +667,7 @@ def run_combo(
         )
     else:
         LOGGER.info(
-            "=== 執行組合：%s (handler=%s, model=%s, instruments=%d/%d) ===",
+            "=== Running combo: %s (handler=%s, model=%s, instruments=%d/%d) ===",
             combo_name,
             handler_key,
             model_key,
@@ -698,7 +698,7 @@ def run_combo(
         port_config["executor"]["kwargs"]["time_per_step"] = rebalance
         port_config["backtest"]["exchange_kwargs"]["freq"] = rebalance
 
-    # 成交價與限價模擬
+    # Execution price and limit-order simulation
     port_config["backtest"]["exchange_kwargs"]["deal_price"] = deal_price
     if simulate_limit:
         base_ex_kwargs = deepcopy(port_config["backtest"]["exchange_kwargs"])
@@ -715,21 +715,21 @@ def run_combo(
         }
         port_config["backtest"]["exchange_kwargs"] = {"exchange": exchange_cfg}
 
-    LOGGER.info("建立模型與資料集配置")
+    LOGGER.info("Build model and dataset configuration")
     model = init_instance_by_config(task_config["model"])
     dataset = init_instance_by_config(task_config["dataset"])
 
     train_exp = f"tw_train_model_{combo_name}"
-    LOGGER.info("開始訓練模型 - 實驗 %s", train_exp)
+    LOGGER.info("Start model training - experiment %s", train_exp)
     with R.start(experiment_name=train_exp):
         R.log_params(**flatten_dict(task_config))
         model.fit(dataset)
         R.save_objects(trained_model=model)
         model_rid = R.get_recorder().id
-    LOGGER.info("模型訓練完成，recorder id = %s", model_rid)
+    LOGGER.info("Model training complete, recorder id = %s", model_rid)
 
     backtest_exp = f"tw_backtest_{combo_name}"
-    LOGGER.info("開始產生訊號與回測 - 實驗 %s", backtest_exp)
+    LOGGER.info("Start signal generation and backtest - experiment %s", backtest_exp)
     with R.start(experiment_name=backtest_exp):
         train_recorder = R.get_recorder(recorder_id=model_rid, experiment_name=train_exp)
         trained_model = train_recorder.load_object("trained_model")
@@ -746,9 +746,9 @@ def run_combo(
         port_rec.generate()
         backtest_rid = current_recorder.id
 
-    LOGGER.info("回測完成，recorder id = %s", backtest_rid)
+    LOGGER.info("Backtest complete, recorder id = %s", backtest_rid)
 
-    LOGGER.info("載入結果並輸出報表/圖表")
+    LOGGER.info("Load results and export reports/charts")
     recorder = R.get_recorder(recorder_id=backtest_rid, experiment_name=backtest_exp)
     handler_kwargs = task_config["dataset"]["kwargs"]["handler"]["kwargs"]
     segments = task_config["dataset"]["kwargs"]["segments"]
@@ -760,7 +760,7 @@ def run_combo(
         segments=segments,
         port_config=port_config,
     )
-    LOGGER.info("組合 %s 完成。輸出根目錄：%s", effective_name, OUTPUT_ROOT)
+    LOGGER.info("Combo %s completed. Output root: %s", effective_name, OUTPUT_ROOT)
 
 
 
@@ -768,9 +768,9 @@ def main() -> None:
     args = parse_args()
     combos = resolve_combos(args.combo)
 
-    LOGGER.info("初始化 Qlib，資料來源：%s", PROVIDER_URI)
+    LOGGER.info("Initialize Qlib, provider uri: %s", PROVIDER_URI)
     qlib.init(provider_uri=str(PROVIDER_URI), region=REGION)
-    LOGGER.info("Universe 規模：%d 檔", len(UNIVERSE))
+    LOGGER.info("Universe size: %d symbols", len(UNIVERSE))
 
     for combo_name in combos:
         spec = COMBO_CONFIGS[combo_name]

@@ -39,27 +39,27 @@ def parse_args() -> argparse.Namespace:
         "--combo",
         choices=combo_choices,
         nargs="+",
-        help="指定要回測的 handler/model combos (預設 alpha158_lgb)。可用 all 跑全部。",
+        help="Combos to backtest (default alpha158_lgb). Use all to run all combos.",
     )
     parser.add_argument("--n-drop", type=int, default=None, help="Override TopkDropout n_drop")
     parser.add_argument("--topk", type=int, default=None, help="Override TopkDropout topk")
-    parser.add_argument("--rebalance", choices=["day", "week"], default="day", help="回測 rebal 頻率")
-    parser.add_argument("--strategy", choices=["bucket", "equal"], default="bucket", help="bucket 分桶 / equal 等權")
+    parser.add_argument("--rebalance", choices=["day", "week"], default="day", help="Backtest rebalance frequency")
+    parser.add_argument("--strategy", choices=["bucket", "equal"], default="bucket", help="bucket weighting / equal weighting")
     parser.add_argument(
         "--deal-price",
         choices=["close", "open"],
         default="close",
-        help="成交價假設（回測用），預設 close，可改用 open",
+        help="Execution price assumption for backtest; default close, optional open",
     )
     parser.add_argument(
         "--limit-tplus",
         action="store_true",
-        help="啟用隔日開盤限價 + T+2 結算（base=open, slippage=1%%）。未指定時為官方預設即刻結算。",
+        help="Enable next-open limit order + T+2 settlement (base=open, slippage=1%%). Default is immediate settlement.",
     )
     parser.add_argument(
         "--recorder-id",
         default=None,
-        help="指定訓練實驗的 recorder id；未指定則取該實驗最新 recorder。",
+        help="Specify recorder id from training experiment; if omitted, use the latest recorder.",
     )
     return parser.parse_args()
 
@@ -75,7 +75,7 @@ def resolve_combos(requested: List[str] | None) -> List[str]:
 def latest_recorder_id(experiment: str) -> str:
     recs = R.list_recorders(experiment_name=experiment)
     if not recs:
-        raise RuntimeError(f"找不到實驗 {experiment} 的 recorder，請先訓練模型")
+        raise RuntimeError(f"No recorder found for experiment {experiment}; train model first")
     def _ts(rid: str) -> float:
         info = recs[rid].info
         ts = info.get("start_time")
@@ -128,7 +128,7 @@ def backtest_combo(
     port_config["backtest"]["exchange_kwargs"]["deal_price"] = deal_price
     if limit_tplus:
         base_ex_kwargs = deepcopy(port_config["backtest"]["exchange_kwargs"])
-        # 限價掛隔日開盤 ±1% + T+2 結算
+        # Next-open limit order ±1% + T+2 settlement
         base_ex_kwargs["deal_price"] = "open"
         exchange_cfg = {
             "class": "TPlusLimitExchange",
@@ -149,12 +149,12 @@ def backtest_combo(
 
     train_exp = f"tw_train_model_{combo_name}"
     recorder_id = recorder_override or latest_recorder_id(train_exp)
-    logging.info("使用訓練 recorder: %s (experiment %s)", recorder_id, train_exp)
+    logging.info("Use training recorder: %s (experiment %s)", recorder_id, train_exp)
     train_recorder = R.get_recorder(recorder_id=recorder_id, experiment_name=train_exp)
     trained_model = train_recorder.load_object("trained_model")
 
     backtest_exp = f"tw_backtest_{combo_name}"
-    logging.info("開始回測 - 實驗 %s", backtest_exp)
+    logging.info("Start backtest - experiment %s", backtest_exp)
     with R.start(experiment_name=backtest_exp):
         current_recorder = R.get_recorder()
         signal_rec = SignalRecord(trained_model, dataset, current_recorder)
@@ -168,7 +168,7 @@ def backtest_combo(
         port_rec.generate()
         backtest_rid = current_recorder.id
 
-    logging.info("回測完成，recorder id = %s", backtest_rid)
+    logging.info("Backtest complete, recorder id = %s", backtest_rid)
     recorder = R.get_recorder(recorder_id=backtest_rid, experiment_name=backtest_exp)
     handler_kwargs = task_config["dataset"]["kwargs"]["handler"]["kwargs"]
     segments = task_config["dataset"]["kwargs"]["segments"]
@@ -180,7 +180,7 @@ def backtest_combo(
         segments=segments,
         port_config=port_config,
     )
-    logging.info("組合 %s 完成。輸出根目錄：%s", effective_name, recorder.list_tags().get("output", "outputs"))
+    logging.info("Combo %s completed. Output root: %s", effective_name, recorder.list_tags().get("output", "outputs"))
 
 
 def main() -> None:
@@ -188,13 +188,13 @@ def main() -> None:
     args = parse_args()
     combos = resolve_combos(args.combo)
 
-    logging.info("初始化 Qlib，資料來源：%s", PROVIDER_URI)
+    logging.info("Initialize Qlib, provider uri: %s", PROVIDER_URI)
     qlib.init(provider_uri=str(PROVIDER_URI), region="tw")
-    logging.info("Universe 規模：%d 檔", len(UNIVERSE))
+    logging.info("Universe size: %d symbols", len(UNIVERSE))
 
     for combo_name in combos:
         spec = COMBO_CONFIGS[combo_name]
-        logging.info("=== 回測組合：%s (handler=%s, model=%s) ===", combo_name, spec["handler"], spec["model"])
+        logging.info("=== Backtest combo: %s (handler=%s, model=%s) ===", combo_name, spec["handler"], spec["model"])
         backtest_combo(
             combo_name,
             spec["handler"],

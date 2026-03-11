@@ -10,13 +10,13 @@ from qlib.backtest.position import Position
 
 class BucketWeightTopkDropout(TopkDropoutStrategy):
     """
-    TopkDropout 變體：買入時依排名分桶配重，非等權。
-    預設：前 10 檔各 4%，11–30 檔各 2%，31–50 檔各 1%（總 100%）。
+    TopkDropout variant: apply bucketed weights by rank instead of equal weighting.
+    Default: top 10 at 4%%, rank 11-30 at 2%%, rank 31-50 at 1%% (sum 100%%).
     """
 
     def __init__(self, *, bucket_weights: List[float] | None = None, **kwargs):
         super().__init__(**kwargs)
-        # bucket_weights 長度應等於 topk，依排名指定每檔目標權重，和應該加總為 1
+        # bucket_weights length should equal topk; per-rank target weights should sum to 1
         self.bucket_weights = bucket_weights
 
     def _get_bucket_weights(self):
@@ -54,9 +54,9 @@ class BucketWeightTopkDropout(TopkDropoutStrategy):
         cash = current_temp.get_cash()
         current_stock_list = current_temp.get_stock_list()
 
-        # 上期持倉按分數排序
+        # Sort previous positions by score
         last = pred_score.reindex(current_stock_list).sort_values(ascending=False).index
-        # 今日候選（TopkDropout 選新股）
+        # Today candidates (new picks by TopkDropout)
         today = get_first_n(
             pred_score[~pred_score.index.isin(last)].sort_values(ascending=False).index,
             self.n_drop + self.topk - len(last),
@@ -65,7 +65,7 @@ class BucketWeightTopkDropout(TopkDropoutStrategy):
         sell = last[last.isin(get_last_n(comb, self.n_drop))]
         buy = today[: len(sell) + self.topk - len(last)]
 
-        # 先賣
+        # Sell first
         for code in current_stock_list:
             if not self.trade_exchange.is_stock_tradable(
                 stock_id=code,
@@ -93,17 +93,17 @@ class BucketWeightTopkDropout(TopkDropoutStrategy):
                     )
                     cash += trade_val - trade_cost
 
-        # 分桶權重
+        # Bucketed weights
         weights = self._get_bucket_weights()
         if len(weights) < self.topk:
-            # 若不足 topk，後面補均等
+            # If shorter than topk, pad with equal weights
             tail = self.topk - len(weights)
             weights += [1.0 / self.topk] * tail
         weights = weights[: self.topk]
         rank_index = pred_score.sort_values(ascending=False).index
         weight_map = {code: weights[i] for i, code in enumerate(rank_index[: self.topk])}
 
-        # 只在買入清單內按相對權重分配現金
+        # Allocate cash by relative weights only within buy list
         buy_weights = [weight_map.get(code, 0.0) for code in buy]
         total_w = sum(buy_weights)
         for code, w in zip(buy, buy_weights):

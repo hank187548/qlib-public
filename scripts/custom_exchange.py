@@ -24,15 +24,15 @@ from qlib.backtest.decision import Order, OrderDir
 
 class TWLimitExchange(Exchange):
     """
-    簡化的台股限價模擬：
-    - 使用 base_price（預設 $open）乘上 limit_slippage 作為限價。
-    - 買：若當日最高價 < 限價則不成交；成交價取 min(base_price, 限價)。
-    - 賣：若當日最低價 > 限價則不成交；成交價取 max(base_price, 限價)。
-    - 無訂單簿/部分成交/撮合，只是日頻保守近似。
+    Simplified TW limit-order simulation:
+    - Use base_price (default $open) times limit_slippage as limit price.
+    - Buy: no fill if day high < limit; fill at min(base_price, limit).
+    - Sell: no fill if day low > limit; fill at max(base_price, limit).
+    - No order book/partial fill/matching; daily conservative approximation only.
     """
 
     def __init__(self, *args, limit_slippage: float = 0.01, **kwargs):
-        # 確保高低價可用
+        # Ensure high/low prices are available
         sub = kwargs.pop("subscribe_fields", [])
         for fld in ("$high", "$low", "$open"):
             if fld not in sub:
@@ -119,10 +119,10 @@ class TWLimitExchange(Exchange):
 class TPlusExchange(Exchange):
     """
     Simple T+N settlement wrapper:
-    - 買進：現金立即扣除，股數 T+N 之後才入帳、可賣。
-    - 賣出：股數立即扣除，現金 T+N 之後才入帳、可用。
-    - 未結算現金會放在 cash_delay 供資產計算，但不影響可用現金。
-    - 不覆蓋限價/漲跌停/交易量檢查，只改結算時點。
+    - Buy: cash deducted immediately; shares settle and become sellable after T+N.
+    - Sell: shares deducted immediately; cash settles and becomes usable after T+N.
+    - Unsettled cash is tracked in cash_delay for NAV calculation and does not affect available cash.
+    - Does not override limit/price-limit/volume checks; only changes settlement timing.
     """
 
     def __init__(self, *args, settlement_lag: int = 2, **kwargs):
@@ -131,7 +131,7 @@ class TPlusExchange(Exchange):
 
     @staticmethod
     def _release_pending(position, current_dt: pd.Timestamp):
-        """釋放到期的股數與現金回 Position。"""
+        """Release matured shares and cash back to Position."""
         pend_cash = getattr(position, "_pending_cash", [])
         still_cash = []
         cash_delay_total = 0.0
@@ -163,7 +163,7 @@ class TPlusExchange(Exchange):
         position._pending_stock = pend_stock
 
     def _settle_date(self, dt: pd.Timestamp) -> pd.Timestamp:
-        # 交易日頻率，簡化用工作日推遲 settlement_lag 天
+        # Trading-day frequency; simplified by shifting settlement_lag business days
         return (dt + pd.tseries.offsets.BDay(self.settlement_lag)).normalize()
 
     def _available_amount(self, pos, code: str, current_dt: pd.Timestamp) -> float:
@@ -187,10 +187,10 @@ class TPlusExchange(Exchange):
             raise ValueError("position is required for TPlusExchange")
 
         current_dt = order.start_time.normalize()
-        # 釋放到期款/股
+        # Release matured cash/shares
         self._release_pending(pos, current_dt)
 
-        # 檢查持股可用量（排除尚未結算）
+        # Check sellable position excluding unsettled shares
         if order.direction == Order.SELL:
             avail = self._available_amount(pos, order.stock_id, current_dt)
             if avail <= 0:
@@ -198,7 +198,7 @@ class TPlusExchange(Exchange):
                 return 0.0, 0.0, np.nan
             order.amount = min(order.amount, avail)
 
-        # 用原本機制算成交價/成本與可成交量
+        # Use base exchange logic to compute trade price/cost/executable size
         trade_price, trade_val, trade_cost = self._calc_trade_info_by_order(order, pos, dealt_order_amount)
         if trade_val <= 1e-5:
             return float(trade_price), float(trade_val), float(trade_cost)
@@ -206,13 +206,13 @@ class TPlusExchange(Exchange):
         settle_dt = self._settle_date(current_dt)
 
         if order.direction == Order.BUY:
-            # 立即扣現金，股數掛 pending
+            # Deduct cash immediately and mark shares as pending
             pos.position["cash"] -= trade_val + trade_cost
             pend_stock = getattr(pos, "_pending_stock", {})
             pend_stock.setdefault(order.stock_id, []).append((settle_dt, order.deal_amount, trade_price))
             pos._pending_stock = pend_stock
         elif order.direction == Order.SELL:
-            # 扣股，現金掛 pending
+            # Deduct shares and mark cash as pending
             current_amt = pos.get_stock_amount(order.stock_id)
             new_amt = current_amt - order.deal_amount
             if new_amt <= 0:
@@ -224,7 +224,7 @@ class TPlusExchange(Exchange):
             cash_in = trade_val - trade_cost
             pend_cash.append((settle_dt, cash_in))
             pos._pending_cash = pend_cash
-            # 更新 cash_delay 方便計算總資產
+            # Update cash_delay for total asset calculation
             pos.position["cash_delay"] = pos.position.get("cash_delay", 0.0) + cash_in
         else:
             raise NotImplementedError(f"direction {order.direction} is not supported")
@@ -234,10 +234,10 @@ class TPlusExchange(Exchange):
 
 class TPlusLimitExchange(TWLimitExchange):
     """
-    簡化限價 + T+N 結算：
-    - 限價邏輯沿用 TWLimitExchange（base_price * slippage，觸價才成交）
-    - 買進：現金立即扣除，股數 T+N 之後才入帳、可賣
-    - 賣出：股數立即扣除，現金 T+N 之後才入帳、可用
+    Simplified limit order + T+N settlement:
+    - Reuse TWLimitExchange limit logic (base_price * slippage, fill on touch)
+    - Buy: cash is deducted immediately; shares settle and become sellable after T+N
+    - Sell: shares are deducted immediately; cash settles and becomes usable after T+N
     """
 
     def __init__(self, *args, settlement_lag: int = 2, **kwargs):
@@ -300,7 +300,7 @@ class TPlusLimitExchange(TWLimitExchange):
         current_dt = order.start_time.normalize()
         self._release_pending(pos, current_dt)
 
-        # 僅已結算股數可賣
+        # Only settled shares are sellable
         if order.direction == Order.SELL:
             avail = self._available_amount(pos, order.stock_id, current_dt)
             if avail <= 0:
@@ -308,18 +308,18 @@ class TPlusLimitExchange(TWLimitExchange):
                 return 0.0, 0.0, np.nan
             order.amount = min(order.amount, avail)
 
-        # 先算成交條件
+        # Evaluate fill conditions first
         trade_price, trade_val, trade_cost = TWLimitExchange._calc_trade_info_by_order(
             self, order, pos, dealt_order_amount
         )
         if trade_val <= 1e-5:
             return float(trade_price), float(trade_val), float(trade_cost)
 
-        # 記錄更新前的現金/持股
+        # Record pre-trade cash/position
         pre_cash = pos.get_cash()
         pre_amt = pos.get_stock_amount(order.stock_id)
 
-        # 讓 trade_account 記錄 turnover/成本等
+        # Update turnover/cost stats through trade_account
         if trade_account:
             trade_account.update_order(order=order, trade_val=trade_val, cost=trade_cost, trade_price=trade_price)
         else:
@@ -328,7 +328,7 @@ class TPlusLimitExchange(TWLimitExchange):
         settle_dt = self._settle_date(current_dt)
 
         if order.direction == Order.BUY:
-            # 將新買股標記為待結算，不影響 turnover 計算
+            # Mark newly bought shares as pending settlement without affecting turnover
             post_amt = pos.get_stock_amount(order.stock_id)
             delta_amt = max(post_amt - pre_amt, 0.0)
             if delta_amt > 0:
@@ -336,7 +336,7 @@ class TPlusLimitExchange(TWLimitExchange):
                 pend_stock.setdefault(order.stock_id, []).append((settle_dt, delta_amt, trade_price))
                 pos._pending_stock = pend_stock
         elif order.direction == Order.SELL:
-            # 現金掛待結算，立即可用現金扣回
+            # Mark cash as pending settlement and deduct available cash immediately
             post_cash = pos.get_cash()
             cash_in = post_cash - pre_cash
             if cash_in > 0:

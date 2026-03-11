@@ -34,9 +34,9 @@ def parse_args() -> argparse.Namespace:
         "--combo",
         choices=combo_choices,
         nargs="+",
-        help="指定要訓練的 handler/model combos (預設 alpha158_lgb)。可用 all 跑全部。",
+        help="Combos to train (default alpha158_lgb). Use all to run all combos.",
     )
-    parser.add_argument("--threads", type=int, default=4, help="限制訓練用的 thread 數 (catboost/lgb)")
+    parser.add_argument("--threads", type=int, default=4, help="Limit training threads (catboost/lgb)")
     return parser.parse_args()
 
 
@@ -57,13 +57,13 @@ def train_combo(combo_name: str, handler_key: str, model_key: str, max_instrumen
     dataset = init_instance_by_config(task_config["dataset"])
 
     train_exp = f"tw_train_model_{combo_name}"
-    logging.info("開始訓練模型 - 實驗 %s", train_exp)
+    logging.info("Start model training - experiment %s", train_exp)
     with R.start(experiment_name=train_exp):
         R.log_params(**flatten_dict(task_config))
         model.fit(dataset)
         R.save_objects(trained_model=model)
         model_rid = R.get_recorder().id
-    logging.info("模型訓練完成，recorder id = %s", model_rid)
+    logging.info("Model training complete, recorder id = %s", model_rid)
 
 
 def main() -> None:
@@ -71,13 +71,13 @@ def main() -> None:
     args = parse_args()
     combos = resolve_combos(args.combo)
 
-    logging.info("初始化 Qlib，資料來源：%s", PROVIDER_URI)
+    logging.info("Initialize Qlib, provider uri: %s", PROVIDER_URI)
     qlib.init(provider_uri=str(PROVIDER_URI), region="tw")
-    logging.info("Universe 規模：%d 檔", len(UNIVERSE))
+    logging.info("Universe size: %d symbols", len(UNIVERSE))
 
     for combo_name in combos:
         spec = COMBO_CONFIGS[combo_name]
-        logging.info("=== 訓練組合：%s (handler=%s, model=%s) ===", combo_name, spec["handler"], spec["model"])
+        logging.info("=== Training combo: %s (handler=%s, model=%s) ===", combo_name, spec["handler"], spec["model"])
         train_combo(
             combo_name,
             spec["handler"],

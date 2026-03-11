@@ -5,6 +5,7 @@ __pycache__/
 
 .env
 .env.*
+!.env.example
 secrets/
 *.pfx
 *.pem
@@ -15,5 +16,7 @@ Data/
 mlruns/
 catboost_info/
 outputs/tw_workflow/
+outputs/live_orders/
+orders_*.csv
 **/@eaDir/
 **/Thumbs.db
