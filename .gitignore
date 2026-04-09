@@ -15,8 +15,13 @@ secrets/
 Data/
 mlruns/
 catboost_info/
+log/
+third_party/
+home/
 outputs/tw_workflow/
 outputs/live_orders/
+outputs/auto_search_*/
+outputs/auto_pipeline/
 orders_*.csv
 **/@eaDir/
 **/Thumbs.db

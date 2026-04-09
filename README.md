@@ -8,6 +8,8 @@ This repository contains:
 - full best-run dashboard artifacts
 - order preparation and broker submission scripts (environment-variable credentials only)
 
+This is the canonical working repository. Keep local-only assets here and stop editing the older private workspace once migration is complete.
+
 ## Best Configuration
 
 | Item | Value |
@@ -100,6 +102,23 @@ python3 scripts/workflow_by_code_tw.py \
   --strategy bucket
 ```
 
+### 4) Promote one local workflow run into the tracked public snapshot
+
+`outputs/tw_workflow/` is for local experiment outputs and is git-ignored.
+`outputs/best_run/` is the tracked public snapshot used by this repo.
+
+```bash
+python3 scripts/promote_best_run.py --combo alpha158_lgb_pro_fil_ndrop2_topk50
+```
+
+This copies `reports/` and `figures/` into `outputs/best_run/` and translates known `summary.txt` labels to English by default.
+
+### 5) Random search helper
+
+```bash
+python3 scripts/auto_train_ic_search.py --combo alpha158_lgb --trials 20 --segment valid
+```
+
 ## Order Execution Scripts
 
 Included scripts:
@@ -140,9 +159,11 @@ python3 scripts/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb
 
 ## Repository Structure
 
-- `configs/` - model and handler config files
+- `configs/` - pipeline/search input configs
 - `scripts/` - training, backtest, workflow, strategy, exchange, and order scripts
+- `outputs/tw_workflow/` - local experiment outputs, intentionally ignored
 - `outputs/best_run/` - exported best-run reports and dashboards
+- `Data/`, `mlruns/`, `catboost_info/`, `third_party/`, `secrets/`, `log/` - local workspace assets, intentionally ignored
 
 ## Security
 
