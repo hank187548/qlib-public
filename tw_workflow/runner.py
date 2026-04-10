@@ -49,8 +49,16 @@ def train_combo(
     infer_processors,
     *,
     threads: int | None = None,
+    model_kwargs_override: Dict[str, object] | None = None,
 ) -> str:
-    task_config = build_task_config(handler_key, model_key, UNIVERSE, max_instruments, infer_processors)
+    task_config = build_task_config(
+        handler_key,
+        model_key,
+        UNIVERSE,
+        max_instruments,
+        infer_processors,
+        model_kwargs_override=model_kwargs_override,
+    )
     if threads is not None:
         if "thread_count" in task_config["model"]["kwargs"]:
             task_config["model"]["kwargs"]["thread_count"] = threads
@@ -86,6 +94,7 @@ def backtest_combo(
     deal_price: str = "close",
     limit_tplus: bool = False,
     recorder_override: str | None = None,
+    model_kwargs_override: Dict[str, object] | None = None,
 ) -> None:
     effective_name = build_effective_name(
         combo_name,
@@ -98,7 +107,14 @@ def backtest_combo(
     )
     paths = set_output_dirs(effective_name)
 
-    task_config = build_task_config(handler_key, model_key, UNIVERSE, max_instruments, infer_processors)
+    task_config = build_task_config(
+        handler_key,
+        model_key,
+        UNIVERSE,
+        max_instruments,
+        infer_processors,
+        model_kwargs_override=model_kwargs_override,
+    )
     port_config = build_port_analysis_config()
     apply_strategy_overrides(
         port_config,
@@ -164,6 +180,7 @@ def run_combo(
     deal_price: str = "close",
     simulate_limit: bool = False,
     limit_slippage: float = 0.01,
+    model_kwargs_override: Dict[str, object] | None = None,
 ) -> None:
     available = len(UNIVERSE)
     if max_instruments is None:
@@ -196,7 +213,14 @@ def run_combo(
     )
     paths = set_output_dirs(effective_name)
 
-    task_config = build_task_config(handler_key, model_key, UNIVERSE, max_instruments, infer_processors)
+    task_config = build_task_config(
+        handler_key,
+        model_key,
+        UNIVERSE,
+        max_instruments,
+        infer_processors,
+        model_kwargs_override=model_kwargs_override,
+    )
     port_config = build_port_analysis_config()
     apply_strategy_overrides(
         port_config,
@@ -211,6 +235,8 @@ def run_combo(
     )
 
     LOGGER.info("Build model and dataset configuration")
+    if model_kwargs_override:
+        LOGGER.info("Apply model kwargs override: %s", model_kwargs_override)
     model = init_instance_by_config(task_config["model"])
     dataset = init_instance_by_config(task_config["dataset"])
 

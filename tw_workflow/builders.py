@@ -18,9 +18,12 @@ def build_task_config(
     instruments: List[str],
     max_instruments: int | None = None,
     infer_processors: List[Dict[str, object]] | None = None,
+    model_kwargs_override: Dict[str, object] | None = None,
 ) -> Dict[str, object]:
     handler_spec = HANDLER_CONFIGS[handler_key]
     model_spec = deepcopy(MODEL_CONFIGS[model_key])
+    if model_kwargs_override:
+        model_spec["kwargs"].update(deepcopy(model_kwargs_override))
     handler_kwargs = deepcopy(BASE_DATA_HANDLER_CONFIG)
     selected_instruments = instruments if max_instruments is None else instruments[:max_instruments]
     handler_kwargs["instruments"] = selected_instruments
@@ -107,4 +110,3 @@ def apply_strategy_overrides(
         port_config["backtest"]["exchange_kwargs"] = {"exchange": exchange_cfg}
 
     return port_config
-

@@ -14,7 +14,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
 from tw_workflow.runner import init_qlib, run_combo
-from tw_workflow.settings import COMBO_CONFIGS, combo_choices, resolve_combos
+from tw_workflow.search_results import extract_model_kwargs, load_search_result_row
+from tw_workflow.settings import COMBO_CONFIGS, MODEL_CONFIGS, combo_choices, resolve_combos
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,19 +33,58 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--deal-price", choices=["close", "open"], default="close", help="Execution price assumption for backtest")
     parser.add_argument("--simulate-limit", action="store_true", help="Enable simplified limit-order simulation")
     parser.add_argument("--limit-slippage", type=float, default=0.01, help="Limit price offset relative to base_price")
+    parser.add_argument("--from-search", type=Path, default=None, help="Load model params from an auto search results CSV")
+    parser.add_argument("--run-index", type=int, default=None, help="Select a specific run_index from --from-search")
+    parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Optional output/experiment combo name when using --from-search. Default: <combo>_searchrun<run_index>",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s - %(message)s")
     args = parse_args()
-    combos = resolve_combos(args.combo)
+
+    if args.from_search is not None and args.run_index is None:
+        raise SystemExit("--run-index is required when using --from-search")
+
+    if args.from_search is not None and args.combo is not None and len(args.combo) > 1:
+        raise SystemExit("--from-search only supports a single --combo at a time")
+
+    search_row = None
+    search_combo = None
+    model_kwargs_override = None
+    runtime_name_override = None
+
+    if args.from_search is not None:
+        search_row = load_search_result_row(args.from_search, args.run_index)
+        search_combo = str(search_row.get("combo")) if "combo" in search_row.index else None
+        combos = [args.combo[0]] if args.combo else [search_combo]
+        if combos[0] is None:
+            raise SystemExit("Unable to infer combo from search CSV; please pass --combo explicitly")
+        if search_combo and combos[0] != search_combo:
+            logging.warning(
+                "Search row combo=%s but selected combo=%s; applying search params onto selected combo",
+                search_combo,
+                combos[0],
+            )
+        runtime_name_override = args.run_name or f"{combos[0]}_searchrun{args.run_index}"
+    else:
+        combos = resolve_combos(args.combo)
 
     init_qlib()
     for combo_name in combos:
         spec = COMBO_CONFIGS[combo_name]
+        runtime_combo_name = combo_name
+        model_kwargs_override = None
+        if search_row is not None:
+            allowed_keys = MODEL_CONFIGS[spec["model"]]["kwargs"].keys()
+            model_kwargs_override = extract_model_kwargs(search_row, allowed_keys)
+            runtime_combo_name = runtime_name_override
         run_combo(
-            combo_name,
+            runtime_combo_name,
             spec["handler"],
             spec["model"],
             spec.get("max_instruments"),
@@ -56,6 +96,7 @@ def main() -> None:
             deal_price=args.deal_price,
             simulate_limit=args.simulate_limit,
             limit_slippage=args.limit_slippage,
+            model_kwargs_override=model_kwargs_override,
         )
 
 

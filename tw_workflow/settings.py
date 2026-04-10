@@ -12,16 +12,16 @@ BENCHMARK = "^TWII"
 DEFAULT_COMBO = "alpha158_lgb"
 
 BASE_DATA_HANDLER_CONFIG: Dict[str, object] = {
-    "start_time": "2009-01-01",
-    "end_time": "2025-11-26",
-    "fit_start_time": "2009-01-01",
-    "fit_end_time": "2025-11-26",
+    "start_time": "2018-01-01",
+    "end_time": "2026-04-10",
+    "fit_start_time": "2018-01-01",
+    "fit_end_time": "2024-12-31",
 }
 
 SEGMENTS: Dict[str, tuple[str, str]] = {
-    "train": ("2020-01-01", "2024-06-30"),
-    "valid": ("2024-07-01", "2024-12-31"),
-    "test": ("2025-01-01", "2025-11-25"),
+    "train": ("2018-01-01", "2024-12-31"),
+    "valid": ("2025-01-01", "2025-06-30"),
+    "test": ("2025-07-01", "2026-04-09"),
 }
 
 MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
@@ -38,6 +38,22 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
             "max_depth": 6,
             "num_leaves": 96,
             "min_child_samples": 50,
+            "num_threads": os.cpu_count() or 8,
+        },
+    },
+    "lgb_run11": {
+        "class": "LGBModel",
+        "module_path": "qlib.contrib.model.gbdt",
+        "kwargs": {
+            "loss": "mse",
+            "colsample_bytree": 0.75,
+            "learning_rate": 0.02,
+            "subsample": 0.7,
+            "lambda_l1": 50.0,
+            "lambda_l2": 150.0,
+            "max_depth": 7,
+            "num_leaves": 128,
+            "min_child_samples": 80,
             "num_threads": os.cpu_count() or 8,
         },
     },
@@ -87,6 +103,12 @@ ALPHA158_INFER_PIPELINE = [
 
 COMBO_CONFIGS = {
     "alpha158_lgb": {"handler": "alpha158", "model": "lgb", "max_instruments": None, "infer_processors": []},
+    "alpha158_lgb_run11": {
+        "handler": "alpha158",
+        "model": "lgb_run11",
+        "max_instruments": None,
+        "infer_processors": [],
+    },
     "alpha158_lgb_pro_fil": {
         "handler": "alpha158",
         "model": "lgb",
@@ -184,4 +206,3 @@ def resolve_combos(requested: List[str] | None) -> List[str]:
     if "all" in requested:
         return list(COMBO_CONFIGS.keys())
     return requested
-
