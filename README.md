@@ -38,18 +38,16 @@ If you want the dashboard artifacts below to match the latest research result, p
 
 Tracked public dashboard bundle is fully included under:
 - `outputs/best_run/figures/`
-- `outputs/best_run/figures/dashboard_snaps/` (static PNG snapshots extracted from `analysis_dashboard.html`)
 
 Key diagnostics:
 - [equity_curve.png](outputs/best_run/figures/equity_curve.png): Strategy vs benchmark
-- [07_score_ic.png](outputs/best_run/figures/dashboard_snaps/07_score_ic.png): Daily information (Score IC)
+- [daily_ic.png](outputs/best_run/figures/daily_ic.png): Daily information coefficient
 - [turnover.png](outputs/best_run/figures/turnover.png): Daily turnover
-- [13_model_performance_6.png](outputs/best_run/figures/dashboard_snaps/13_model_performance_6.png): model performance snapshot
+- [model_performance_6.html](outputs/best_run/figures/model_performance_6.html): Model performance view
 
 ![Equity Curve](outputs/best_run/figures/equity_curve.png)
-![Score IC](outputs/best_run/figures/dashboard_snaps/07_score_ic.png)
+![Daily IC](outputs/best_run/figures/daily_ic.png)
 ![Turnover](outputs/best_run/figures/turnover.png)
-![Model Performance](outputs/best_run/figures/dashboard_snaps/13_model_performance_6.png)
 
 Interactive dashboard files:
 - [analysis_dashboard.html](outputs/best_run/figures/analysis_dashboard.html)
