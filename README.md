@@ -10,6 +10,16 @@ This repository contains:
 
 This is the canonical working repository. Keep local-only assets here and stop editing the older private workspace once migration is complete.
 
+## Repo Layout
+
+- `research/` - reusable research and backtest modules
+- `trade/` - reusable paper-trading and execution modules
+- `scripts/research/` - research CLI entrypoints
+- `scripts/trade/` - trade CLI entrypoints
+
+Legacy top-level `scripts/*.py` and `tw_workflow/` / `paper_trading/` imports are kept as thin compatibility wrappers.
+New code should go under `research/`, `trade/`, `scripts/research/`, or `scripts/trade/`.
+
 ## Current Recommended Configuration
 
 | Item | Value |
@@ -83,13 +93,13 @@ pip install pyqlib lightgbm xgboost catboost pandas numpy matplotlib plotly
 ### 1) Train models only
 
 ```bash
-python3 scripts/train_tw.py --combo alpha158_lgb_run11
+python3 scripts/research/train_tw.py --combo alpha158_lgb_run11
 ```
 
 ### 2) Backtest using trained models
 
 ```bash
-python3 scripts/backtest_tw.py \
+python3 scripts/research/backtest_tw.py \
   --combo alpha158_lgb_run11 \
   --n-drop 1 \
   --topk 10 \
@@ -100,7 +110,7 @@ python3 scripts/backtest_tw.py \
 ### 3) End-to-end run (train + backtest + export)
 
 ```bash
-python3 scripts/workflow_by_code_tw.py \
+python3 scripts/research/workflow_by_code_tw.py \
   --combo alpha158_lgb_run11 \
   --n-drop 1 \
   --topk 10 \
@@ -110,7 +120,7 @@ python3 scripts/workflow_by_code_tw.py \
 ### 4) End-to-end run directly from search results
 
 ```bash
-python3 scripts/workflow_by_code_tw.py \
+python3 scripts/research/workflow_by_code_tw.py \
   --combo alpha158_lgb \
   --from-search outputs/auto_search_alpha158_lgb/results.csv \
   --run-index 11 \
@@ -140,10 +150,12 @@ python3 scripts/auto_train_ic_search.py --combo alpha158_lgb --trials 20 --segme
 ## Order Execution Scripts
 
 Included scripts:
-- `scripts/predict_and_prepare_orders.py`
-- `scripts/place_orders_from_csv.py`
-- `scripts/masterlink_trade.py`
-- `scripts/test_masterlink_sdk.py`
+- `scripts/trade/predict_and_prepare_orders.py`
+- `scripts/trade/place_orders_from_csv.py`
+- `scripts/trade/masterlink_trade.py`
+- `scripts/trade/test_masterlink_sdk.py`
+
+Legacy top-level wrappers under `scripts/` still work, but new usage should prefer `scripts/trade/`.
 
 Create local env file:
 
@@ -160,25 +172,29 @@ Required variables:
 Generate order list from model:
 
 ```bash
-python3 scripts/predict_and_prepare_orders.py --combo alpha158_lgb --topk 50 --strategy bucket
+python3 scripts/trade/predict_and_prepare_orders.py --combo alpha158_lgb --topk 50 --strategy bucket
 ```
 
 Dry-run place orders from CSV:
 
 ```bash
-python3 scripts/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv
+python3 scripts/trade/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv
 ```
 
 Live place orders:
 
 ```bash
-python3 scripts/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv --live
+python3 scripts/trade/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv --live
 ```
 
 ## Repository Structure
 
 - `configs/` - pipeline/search input configs
-- `scripts/` - training, backtest, workflow, strategy, exchange, and order scripts
+- `research/` - research and backtest modules
+- `trade/` - paper-trading and execution modules
+- `scripts/research/` - research CLI entrypoints
+- `scripts/trade/` - trade CLI entrypoints
+- `scripts/` - legacy CLI wrappers kept for compatibility
 - `outputs/tw_workflow/` - local experiment outputs, intentionally ignored
 - `outputs/best_run/` - exported best-run reports and dashboards
 - `Data/`, `mlruns/`, `catboost_info/`, `third_party/`, `secrets/`, `log/` - local workspace assets, intentionally ignored

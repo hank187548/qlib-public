@@ -1,2 +1,1 @@
-"""Shared modules for the Taiwan Qlib workflow."""
-
+"""Compatibility wrappers for the moved research package."""

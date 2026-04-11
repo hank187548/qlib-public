@@ -1,4 +1,1 @@
-from __future__ import annotations
-
-"""Isolated forward paper-trading helpers."""
-
+"""Compatibility wrappers for the moved trade package."""
