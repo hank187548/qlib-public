@@ -28,13 +28,12 @@ from qlib.data import D
 from qlib.utils import init_instance_by_config
 from qlib.workflow import R
 
-# Ensure local scripts package is importable
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+    sys.path.insert(0, str(ROOT_DIR))
 
-from research.builders import build_task_config  # noqa: E402
-from research.settings import COMBO_CONFIGS, PROVIDER_URI, UNIVERSE, WORK_DIR  # noqa: E402
+from qlib_tw.research.builders import build_task_config  # noqa: E402
+from qlib_tw.research.settings import COMBO_CONFIGS, PROVIDER_URI, UNIVERSE, WORK_DIR  # noqa: E402
 from masterlink_sdk import (
     MasterlinkSDK,
     Order,

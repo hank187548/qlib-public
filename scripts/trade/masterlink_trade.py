@@ -6,7 +6,7 @@ This script logs into the Masterlink API, optionally performs the one-time
 
 Example usage::
 
-    python scripts/masterlink_trade.py \
+    python scripts/trade/masterlink_trade.py \
         --user-id YOUR_LOGIN_ID \
         --password YOUR_PASSWORD \
         --cert secrets/broker_cert.pfx \

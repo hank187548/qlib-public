@@ -10,9 +10,9 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+    sys.path.insert(0, str(ROOT_DIR))
 
-from research.publish import DEST_ROOT, promote_output
+from qlib_tw.research.publish import DEST_ROOT, promote_output
 
 
 def parse_args() -> argparse.Namespace:

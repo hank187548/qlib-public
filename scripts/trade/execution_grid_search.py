@@ -10,9 +10,9 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+    sys.path.insert(0, str(ROOT_DIR))
 
-from trade.execution_search import ExecutionGridConfig, run_execution_grid
+from qlib_tw.trade.execution_search import ExecutionGridConfig, run_execution_grid
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,7 +25,7 @@ def main() -> int:
     args = parse_args()
     config = ExecutionGridConfig.from_json(args.config)
     result = run_execution_grid(config)
-    logging.getLogger("paper_trading.execution_search").info(
+    logging.getLogger("qlib_tw.trade.execution_search").info(
         "Best variant %s => %.6f",
         result["best_result"]["variant_slug"],
         result["best_result"]["ranking_value"],

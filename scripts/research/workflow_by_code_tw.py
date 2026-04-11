@@ -11,11 +11,11 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+    sys.path.insert(0, str(ROOT_DIR))
 
-from research.runner import init_qlib, run_combo
-from research.search_results import extract_model_kwargs, load_search_result_row
-from research.settings import COMBO_CONFIGS, MODEL_CONFIGS, combo_choices, resolve_combos
+from qlib_tw.research.runner import init_qlib, run_combo
+from qlib_tw.research.search_results import extract_model_kwargs, load_search_result_row
+from qlib_tw.research.settings import COMBO_CONFIGS, MODEL_CONFIGS, combo_choices, resolve_combos
 
 
 def parse_args() -> argparse.Namespace:

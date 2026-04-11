@@ -12,13 +12,16 @@ This is the canonical working repository. Keep local-only assets here and stop e
 
 ## Repo Layout
 
-- `research/` - reusable research and backtest modules
-- `trade/` - reusable paper-trading and execution modules
+- `qlib_tw/` - all importable core logic
+- `qlib_tw/research/` - reusable research and backtest modules
+- `qlib_tw/trade/` - reusable paper-trading and execution modules
 - `scripts/research/` - research CLI entrypoints
 - `scripts/trade/` - trade CLI entrypoints
+- `configs/research/` - research/search configs
+- `configs/trade/` - trading/execution configs
 
-Legacy top-level `scripts/*.py` and `tw_workflow/` / `paper_trading/` imports are kept as thin compatibility wrappers.
-New code should go under `research/`, `trade/`, `scripts/research/`, or `scripts/trade/`.
+If you want to change core behavior, go to `qlib_tw/`.
+If you want to change command-line behavior, go to `scripts/`.
 
 ## Current Recommended Configuration
 
@@ -136,7 +139,7 @@ python3 scripts/research/workflow_by_code_tw.py \
 `outputs/best_run/` is the tracked public snapshot used by this repo.
 
 ```bash
-python3 scripts/promote_best_run.py --combo alpha158_lgb_run11_scanbest_bucket_topk10_ndrop1 --clean
+python3 scripts/research/promote_best_run.py --combo alpha158_lgb_run11_scanbest_bucket_topk10_ndrop1 --clean
 ```
 
 This copies `reports/` and `figures/` into `outputs/best_run/` and translates known `summary.txt` labels to English by default.
@@ -144,7 +147,13 @@ This copies `reports/` and `figures/` into `outputs/best_run/` and translates kn
 ### 6) Random search helper
 
 ```bash
-python3 scripts/auto_train_ic_search.py --combo alpha158_lgb --trials 20 --segment valid
+python3 scripts/research/auto_train_ic_search.py --combo alpha158_lgb --trials 20 --segment valid
+```
+
+Pipeline config example:
+
+```bash
+python3 scripts/research/auto_search_pipeline.py --config configs/research/auto_search_pipeline.example.json
 ```
 
 ## Order Execution Scripts
@@ -154,8 +163,6 @@ Included scripts:
 - `scripts/trade/place_orders_from_csv.py`
 - `scripts/trade/masterlink_trade.py`
 - `scripts/trade/test_masterlink_sdk.py`
-
-Legacy top-level wrappers under `scripts/` still work, but new usage should prefer `scripts/trade/`.
 
 Create local env file:
 
@@ -187,14 +194,28 @@ Live place orders:
 python3 scripts/trade/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv --live
 ```
 
+Paper trading replay:
+
+```bash
+python3 scripts/trade/paper_trade_daily.py \
+  --config configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json \
+  --target-date 2026-04-11
+```
+
+Execution grid search:
+
+```bash
+python3 scripts/trade/execution_grid_search.py \
+  --config configs/trade/execution_grid.alpha158_lgb_run11_1m_tplus.json
+```
+
 ## Repository Structure
 
-- `configs/` - pipeline/search input configs
-- `research/` - research and backtest modules
-- `trade/` - paper-trading and execution modules
+- `qlib_tw/` - importable core package
+- `configs/research/` - research/search configs
+- `configs/trade/` - trade/paper-trading configs
 - `scripts/research/` - research CLI entrypoints
 - `scripts/trade/` - trade CLI entrypoints
-- `scripts/` - legacy CLI wrappers kept for compatibility
 - `outputs/tw_workflow/` - local experiment outputs, intentionally ignored
 - `outputs/best_run/` - exported best-run reports and dashboards
 - `Data/`, `mlruns/`, `catboost_info/`, `third_party/`, `secrets/`, `log/` - local workspace assets, intentionally ignored

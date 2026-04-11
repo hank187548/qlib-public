@@ -4,11 +4,11 @@ GPU-first IC search helper for selected Taiwan workflow combos.
 
 Examples:
 - Search CatBoost on GPU:
-    python3 scripts/auto_train_ic_search.py --combo alpha158_cat --trials 100
+    python3 scripts/research/auto_train_ic_search.py --combo alpha158_cat --trials 100
 - Search LightGBM:
-    python3 scripts/auto_train_ic_search.py --combo alpha158_lgb --trials 100
+    python3 scripts/research/auto_train_ic_search.py --combo alpha158_lgb --trials 100
 - Search both and score on valid:
-    python3 scripts/auto_train_ic_search.py --combo alpha158_lgb alpha158_cat --segment valid
+    python3 scripts/research/auto_train_ic_search.py --combo alpha158_lgb alpha158_cat --segment valid
 """
 
 from __future__ import annotations
@@ -26,14 +26,14 @@ import pandas as pd
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+    sys.path.insert(0, str(ROOT_DIR))
 
 import qlib
 from qlib.utils import init_instance_by_config
 
-from research.builders import build_task_config
-from research.ic import calc_daily_ic
-from research.settings import COMBO_CONFIGS, PROVIDER_URI, UNIVERSE
+from qlib_tw.research.builders import build_task_config
+from qlib_tw.research.ic import calc_daily_ic
+from qlib_tw.research.settings import COMBO_CONFIGS, PROVIDER_URI, UNIVERSE
 
 
 ComboSampler = Callable[[random.Random, argparse.Namespace], Dict[str, Any]]

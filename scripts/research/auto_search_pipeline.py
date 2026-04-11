@@ -10,9 +10,9 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+    sys.path.insert(0, str(ROOT_DIR))
 
-from research.search import main
+from qlib_tw.research.search import main
 
 
 if __name__ == "__main__":

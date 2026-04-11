@@ -12,10 +12,10 @@ import pandas as pd
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+    sys.path.insert(0, str(ROOT_DIR))
 
-from trade.config import PaperTradingProfile
-from trade.replay import run_paper_trading_cycle
+from qlib_tw.trade.config import PaperTradingProfile
+from qlib_tw.trade.replay import run_paper_trading_cycle
 
 
 def parse_args() -> argparse.Namespace:
