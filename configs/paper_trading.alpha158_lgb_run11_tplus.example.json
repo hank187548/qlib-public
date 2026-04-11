@@ -26,6 +26,5 @@
   "data_refresh_start": "2018-01-01",
   "provider_uri": "Data/tw_data",
   "output_root": "outputs/paper_trading",
-  "reference_backtest_experiment": "tw_backtest_alpha158_lgb_searchrun11_cli_smoke",
-  "reference_backtest_recorder_id": "97ea52ee80ce4e67b20a1ef10f73f4f7"
+  "region": "tw"
 }

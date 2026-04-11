@@ -13,9 +13,10 @@ It keeps outputs separate from the current `tw_workflow` backtest entrypoints.
 
 ## Source Of Truth
 
-Phase 1 uses replay as the source of truth.
+Paper trading starts strictly from the configured `backtest_start`.
 
 - Each daily run rebuilds the portfolio path from `backtest_start` to the latest available trade date.
+- No position, cash, or pending settlement state is inherited from any earlier repo test segment.
 - `paper_state.json` is a snapshot output, not the engine state that drives the next run.
 - This avoids custom state-resume bugs, but it does mean historical data revisions can change past simulated decisions.
 

@@ -48,8 +48,6 @@ class PaperTradingProfile:
     search_results_csv: Path | None = None
     search_run_index: int | None = None
     model_kwargs: Dict[str, object] = field(default_factory=dict)
-    reference_backtest_experiment: str | None = None
-    reference_backtest_recorder_id: str | None = None
     region: str = REGION
 
     @classmethod
@@ -90,8 +88,6 @@ class PaperTradingProfile:
             search_results_csv=search_results_csv,
             search_run_index=int(payload["search_run_index"]) if payload.get("search_run_index") is not None else None,
             model_kwargs=dict(payload.get("model_kwargs", {})),
-            reference_backtest_experiment=payload.get("reference_backtest_experiment"),
-            reference_backtest_recorder_id=payload.get("reference_backtest_recorder_id"),
             region=str(payload.get("region", REGION)),
         )
         if profile.combo not in COMBO_CONFIGS:

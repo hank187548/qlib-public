@@ -19,7 +19,7 @@ from paper_trading.replay import run_paper_trading_cycle
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Replay a fixed strategy into an isolated paper-trading workspace")
+    parser = argparse.ArgumentParser(description="Run paper trading from the configured start date with isolated outputs")
     parser.add_argument("--config", type=Path, required=True, help="Paper trading profile JSON")
     parser.add_argument("--target-date", default=None, help="Replay end date (YYYY-MM-DD). Default: today")
     parser.add_argument(
