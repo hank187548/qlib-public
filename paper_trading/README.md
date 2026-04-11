@@ -19,6 +19,12 @@ Phase 1 uses replay as the source of truth.
 - `paper_state.json` is a snapshot output, not the engine state that drives the next run.
 - This avoids custom state-resume bugs, but it does mean historical data revisions can change past simulated decisions.
 
+If `backtest_start` is set later than the latest available trade date, the runner switches to a fresh-start preview mode.
+
+- `orders_next_day.csv` is generated from the latest signal using cash-only state.
+- `paper_state.json` shows the pre-start cash snapshot with no inherited positions.
+- Once market data for the start date exists, normal replay resumes from that start date.
+
 ## Output Contract
 
 Daily files are written under:

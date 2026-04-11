@@ -127,3 +127,24 @@ def snapshot_from_position(
         metadata=metadata,
     )
 
+
+def snapshot_from_cash(
+    *,
+    as_of_date: pd.Timestamp,
+    next_trade_date: pd.Timestamp,
+    account_value: float,
+    metadata: Dict[str, object],
+) -> PaperStateSnapshot:
+    cash_value = _as_float(account_value)
+    return PaperStateSnapshot(
+        as_of_date=as_of_date.strftime("%Y-%m-%d"),
+        next_trade_date=next_trade_date.strftime("%Y-%m-%d"),
+        account_value=cash_value,
+        market_value=0.0,
+        cash=cash_value,
+        cash_delay=0.0,
+        positions=[],
+        pending_cash=[],
+        pending_stock=[],
+        metadata=metadata,
+    )

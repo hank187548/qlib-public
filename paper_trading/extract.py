@@ -8,7 +8,7 @@ import pandas as pd
 from qlib.data import D
 
 from paper_trading.config import PaperTradingProfile
-from paper_trading.state import snapshot_from_position
+from paper_trading.state import snapshot_from_cash, snapshot_from_position
 from tw_workflow.builders import build_port_analysis_config
 
 
@@ -124,6 +124,40 @@ def build_fills_dataframe(indicator_obj, trade_date: pd.Timestamp) -> pd.DataFra
             }
         )
     return pd.DataFrame(rows).sort_values(["side", "instrument"]).reset_index(drop=True)
+
+
+def build_empty_fills_dataframe(trade_date: pd.Timestamp) -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "trade_date",
+            "instrument",
+            "side",
+            "requested_qty",
+            "filled_qty",
+            "fill_rate",
+            "fill_price",
+            "filled_notional",
+            "trade_cost",
+            "status",
+        ]
+    )
+
+
+class _CashOnlyPosition:
+    def __init__(self, cash: float):
+        self._cash = float(cash)
+        self.position = {"cash": self._cash}
+        self._pending_cash = []
+        self._pending_stock = {}
+
+    def get_stock_list(self):
+        return []
+
+    def get_stock_amount(self, _code):
+        return 0.0
+
+    def get_cash(self):
+        return self._cash
 
 
 def _locked_stock_map(position) -> Dict[str, float]:
@@ -284,6 +318,71 @@ def extract_outputs(
         next_trade_date=next_trade_date,
         account_value=float(report_row["account_value"]),
         market_value=float(report_row["market_value"]),
+        metadata=metadata,
+    )
+    return ExtractedOutputs(
+        trade_date=trade_date,
+        next_trade_date=next_trade_date,
+        nav_history=nav_history,
+        fills=fills,
+        orders_next_day=orders_next_day,
+        state_snapshot=state_snapshot,
+    )
+
+
+def extract_preview_outputs(
+    *,
+    profile: PaperTradingProfile,
+    pred_df: pd.DataFrame | pd.Series,
+    as_of_date: pd.Timestamp,
+    calendar_dates: Iterable[pd.Timestamp],
+    metadata: Dict[str, object],
+) -> ExtractedOutputs:
+    trade_date = pd.Timestamp(as_of_date).normalize()
+    next_trade_date = infer_next_trade_date(trade_date, calendar_dates)
+    if isinstance(pred_df, pd.DataFrame):
+        pred_series = pred_df.iloc[:, 0]
+    else:
+        pred_series = pred_df
+    latest_pred_date = pred_series.index.get_level_values(0).max()
+    latest_scores = pred_series.loc[pd.IndexSlice[latest_pred_date, :]]
+    if isinstance(latest_scores, pd.Series) and isinstance(latest_scores.index, pd.MultiIndex):
+        latest_scores.index = latest_scores.index.get_level_values(-1)
+    latest_scores.index = latest_scores.index.map(str)
+
+    cash_position = _CashOnlyPosition(profile.account)
+    orders_next_day = _compute_next_orders(
+        pred_series=latest_scores,
+        position=cash_position,
+        profile=profile,
+        signal_date=pd.Timestamp(latest_pred_date).normalize(),
+        next_trade_date=next_trade_date,
+    )
+    nav_history = pd.DataFrame(
+        [
+            {
+                "date": trade_date.strftime("%Y-%m-%d"),
+                "account_value": float(profile.account),
+                "market_value": 0.0,
+                "cash": float(profile.account),
+                "cash_delay": 0.0,
+                "holdings_count": 0,
+                "daily_return": 0.0,
+                "benchmark_return": 0.0,
+                "cost_rate": 0.0,
+                "excess_return_without_cost": 0.0,
+                "excess_return_with_cost": 0.0,
+                "turnover": 0.0,
+                "total_turnover": 0.0,
+                "total_cost": 0.0,
+            }
+        ]
+    )
+    fills = build_empty_fills_dataframe(trade_date)
+    state_snapshot = snapshot_from_cash(
+        as_of_date=trade_date,
+        next_trade_date=next_trade_date,
+        account_value=float(profile.account),
         metadata=metadata,
     )
     return ExtractedOutputs(

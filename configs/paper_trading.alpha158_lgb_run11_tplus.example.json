@@ -21,7 +21,7 @@
   "odd_lot_min_cost": 1,
   "board_lot_size": 1000,
   "trade_unit": 1,
-  "backtest_start": "2025-07-01",
+  "backtest_start": "2026-04-13",
   "data_start": "2018-01-01",
   "data_refresh_start": "2018-01-01",
   "provider_uri": "Data/tw_data",

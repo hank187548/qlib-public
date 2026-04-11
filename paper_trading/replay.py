@@ -11,7 +11,7 @@ from qlib.workflow import R
 from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
 from paper_trading.config import PaperTradingProfile
-from paper_trading.extract import extract_outputs, write_outputs
+from paper_trading.extract import extract_outputs, extract_preview_outputs, write_outputs
 from paper_trading.paths import build_paths
 from scripts.Get_data_Tai import run_collect
 from tw_workflow.builders import apply_strategy_overrides, build_port_analysis_config, build_task_config
@@ -116,6 +116,13 @@ def _dynamic_task_config(profile: PaperTradingProfile, provider_uri: Path, effec
         handler_kwargs["fit_end_time"] = effective_end.strftime("%Y-%m-%d")
     segments = task_cfg["dataset"]["kwargs"]["segments"]
     segments["test"] = (profile.backtest_start, effective_end.strftime("%Y-%m-%d"))
+    return task_cfg
+
+
+def _preview_task_config(profile: PaperTradingProfile, provider_uri: Path, effective_end: pd.Timestamp) -> dict:
+    task_cfg = _dynamic_task_config(profile, provider_uri, effective_end)
+    effective_end_str = effective_end.strftime("%Y-%m-%d")
+    task_cfg["dataset"]["kwargs"]["segments"]["test"] = (effective_end_str, effective_end_str)
     return task_cfg
 
 
@@ -238,6 +245,37 @@ def run_paper_trading_cycle(profile: PaperTradingProfile, target_date: pd.Timest
             effective_end.strftime("%Y-%m-%d"),
         )
     init_qlib(run_provider_uri, profile.region)
+    backtest_start = pd.Timestamp(profile.backtest_start).normalize()
+    if backtest_start > effective_end:
+        LOGGER.info(
+            "Backtest start %s is after latest available trade date %s; generating fresh-start preview only",
+            backtest_start.strftime("%Y-%m-%d"),
+            effective_end.strftime("%Y-%m-%d"),
+        )
+        task_cfg = _preview_task_config(profile, run_provider_uri, effective_end)
+        dataset = init_instance_by_config(task_cfg["dataset"])
+        train_recorder = R.get_recorder(experiment_name=profile.train_experiment, recorder_id=profile.train_recorder_id)
+        trained_model = train_recorder.load_object("trained_model")
+        pred_df = trained_model.predict(dataset, segment="test")
+        metadata = profile.to_metadata()
+        metadata.update(
+            {
+                "requested_target_date": pd.Timestamp(target_date).normalize().strftime("%Y-%m-%d"),
+                "paper_experiment": None,
+                "paper_recorder_id": None,
+                "active_provider_uri": str(run_provider_uri),
+                "bootstrap_mode": "fresh_start_preview",
+                "preview_as_of_date": effective_end.strftime("%Y-%m-%d"),
+            }
+        )
+        outputs = extract_preview_outputs(
+            profile=profile,
+            pred_df=pred_df,
+            as_of_date=effective_end,
+            calendar_dates=read_calendar_dates(run_provider_uri),
+            metadata=metadata,
+        )
+        return write_outputs(build_paths(profile.resolved_output_root), outputs, metadata)
     experiment_name, recorder_id, _effective_end = run_daily_replay(
         profile,
         target_date,
