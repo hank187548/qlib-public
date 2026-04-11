@@ -22,6 +22,8 @@ outputs/tw_workflow/
 outputs/live_orders/
 outputs/auto_search_*/
 outputs/auto_pipeline/
+outputs/paper_trading/
+outputs/execution_grid/
 orders_*.csv
 **/@eaDir/
 **/Thumbs.db

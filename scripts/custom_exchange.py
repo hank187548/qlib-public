@@ -31,7 +31,14 @@ class TWLimitExchange(Exchange):
     - No order book/partial fill/matching; daily conservative approximation only.
     """
 
-    def __init__(self, *args, limit_slippage: float = 0.01, **kwargs):
+    def __init__(
+        self,
+        *args,
+        limit_slippage: float = 0.01,
+        odd_lot_min_cost: float = 1.0,
+        board_lot_size: int = 1000,
+        **kwargs,
+    ):
         # Ensure high/low prices are available
         sub = kwargs.pop("subscribe_fields", [])
         for fld in ("$high", "$low", "$open"):
@@ -39,6 +46,61 @@ class TWLimitExchange(Exchange):
                 sub.append(fld)
         super().__init__(*args, subscribe_fields=sub, **kwargs)
         self.limit_slippage = limit_slippage
+        self.odd_lot_min_cost = float(odd_lot_min_cost)
+        self.board_lot_size = int(board_lot_size)
+
+    def _raw_share_count(self, deal_amount: float, factor: float | None) -> int:
+        if factor is None or np.isnan(factor) or factor <= 0:
+            return max(int(round(deal_amount)), 0)
+        return max(int(round(deal_amount * factor)), 0)
+
+    def _calc_tw_trade_cost(self, *, trade_val: float, deal_amount: float, cost_ratio: float, factor: float | None) -> float:
+        if trade_val <= 1e-5 or deal_amount <= 1e-8:
+            return 0.0
+        raw_shares = self._raw_share_count(deal_amount, factor)
+        if raw_shares <= 0:
+            return max(trade_val * cost_ratio, self.odd_lot_min_cost)
+
+        board_shares = 0
+        odd_shares = raw_shares
+        if self.board_lot_size > 0:
+            board_shares = (raw_shares // self.board_lot_size) * self.board_lot_size
+            odd_shares = raw_shares - board_shares
+
+        total_cost = 0.0
+        if board_shares > 0:
+            board_trade_val = trade_val * (board_shares / raw_shares)
+            total_cost += max(board_trade_val * cost_ratio, self.min_cost)
+        if odd_shares > 0:
+            odd_trade_val = trade_val * (odd_shares / raw_shares)
+            total_cost += max(odd_trade_val * cost_ratio, self.odd_lot_min_cost)
+        return total_cost
+
+    def _get_buy_amount_by_cash_limit(self, trade_price: float, cash: float, cost_ratio: float, factor: float | None = None) -> float:
+        if trade_price <= 0 or cash <= 0:
+            return 0.0
+        low = 0.0
+        high = self.round_amount_by_trade_unit(cash / trade_price, factor)
+        best = 0.0
+        for _ in range(40):
+            if high - low <= 1e-8:
+                break
+            mid = self.round_amount_by_trade_unit((low + high) / 2.0, factor)
+            if mid <= best + 1e-8:
+                break
+            trade_val = mid * trade_price
+            trade_cost = self._calc_tw_trade_cost(
+                trade_val=trade_val,
+                deal_amount=mid,
+                cost_ratio=cost_ratio,
+                factor=factor,
+            )
+            if trade_val + trade_cost <= cash + 1e-12:
+                best = mid
+                low = mid
+            else:
+                high = mid
+        return best
 
     def _get_price_with_limit(
         self, stock_id: str, start_time: pd.Timestamp, end_time: pd.Timestamp, direction: OrderDir
@@ -88,19 +150,29 @@ class TWLimitExchange(Exchange):
                 current_amount = position.get_stock_amount(order.stock_id) if position.check_stock(order.stock_id) else 0
                 if not np.isclose(order.deal_amount, current_amount):
                     order.deal_amount = self.round_amount_by_trade_unit(min(current_amount, order.deal_amount), order.factor)
-                if position.get_cash() + order.deal_amount * trade_price < max(
-                    order.deal_amount * trade_price * cost_ratio, self.min_cost
-                ):
+                sell_trade_cost = self._calc_tw_trade_cost(
+                    trade_val=order.deal_amount * trade_price,
+                    deal_amount=order.deal_amount,
+                    cost_ratio=cost_ratio,
+                    factor=order.factor,
+                )
+                if position.get_cash() + order.deal_amount * trade_price < sell_trade_cost:
                     order.deal_amount = 0
         elif order.direction == Order.BUY:
             cost_ratio = self.open_cost + adj_cost_ratio
             if position is not None:
                 cash = position.get_cash()
                 trade_val = order.deal_amount * trade_price
-                if cash < max(trade_val * cost_ratio, self.min_cost):
+                buy_trade_cost = self._calc_tw_trade_cost(
+                    trade_val=trade_val,
+                    deal_amount=order.deal_amount,
+                    cost_ratio=cost_ratio,
+                    factor=order.factor,
+                )
+                if cash < buy_trade_cost:
                     order.deal_amount = 0
-                elif cash < trade_val + max(trade_val * cost_ratio, self.min_cost):
-                    max_buy_amount = self._get_buy_amount_by_cash_limit(trade_price, cash, cost_ratio)
+                elif cash < trade_val + buy_trade_cost:
+                    max_buy_amount = self._get_buy_amount_by_cash_limit(trade_price, cash, cost_ratio, order.factor)
                     order.deal_amount = self.round_amount_by_trade_unit(min(max_buy_amount, order.deal_amount), order.factor)
                 else:
                     order.deal_amount = self.round_amount_by_trade_unit(order.deal_amount, order.factor)
@@ -110,9 +182,12 @@ class TWLimitExchange(Exchange):
             raise NotImplementedError(f"order direction {order.direction} error")
 
         trade_val = order.deal_amount * trade_price
-        trade_cost = max(trade_val * cost_ratio, self.min_cost)
-        if trade_val <= 1e-5:
-            trade_cost = 0.0
+        trade_cost = self._calc_tw_trade_cost(
+            trade_val=trade_val,
+            deal_amount=order.deal_amount,
+            cost_ratio=cost_ratio,
+            factor=order.factor,
+        )
         return float(trade_price), float(trade_val), float(trade_cost)
 
 
