@@ -220,6 +220,11 @@ Then paste the line from:
 configs/trade/paper_trade_daily.crontab.example
 ```
 
+Recommended pattern:
+
+- Run once before market open to refresh the preview order list.
+- Run once after market close to refresh actual simulated fills and account state.
+
 Execution grid search:
 
 ```bash

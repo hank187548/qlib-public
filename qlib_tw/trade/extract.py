@@ -143,6 +143,35 @@ def build_empty_fills_dataframe(trade_date: pd.Timestamp) -> pd.DataFrame:
     )
 
 
+def build_empty_order_fill_comparison_dataframe() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "trade_date",
+            "plan_signal_date",
+            "instrument",
+            "side",
+            "planned_rank",
+            "planned_qty_est",
+            "actual_requested_qty",
+            "actual_filled_qty",
+            "requested_vs_plan_qty_diff",
+            "filled_vs_plan_qty_diff",
+            "unfilled_qty",
+            "planned_price_reference",
+            "actual_fill_price",
+            "planned_target_weight",
+            "planned_target_value_est",
+            "planned_blocked_by_tplus",
+            "planned_requires_open_reprice",
+            "planned_price_model",
+            "actual_fill_rate",
+            "actual_fill_status",
+            "comparison_status",
+            "planned_note",
+        ]
+    )
+
+
 class _CashOnlyPosition:
     def __init__(self, cash: float):
         self._cash = float(cash)
@@ -165,6 +194,188 @@ def _locked_stock_map(position) -> Dict[str, float]:
     for code, entries in getattr(position, "_pending_stock", {}).items():
         locked[str(code)] = sum(float(amount) for _release, amount, _price in entries)
     return locked
+
+
+def _extract_scores_for_date(pred_df: pd.DataFrame | pd.Series, signal_date: pd.Timestamp) -> pd.Series:
+    signal_date = pd.Timestamp(signal_date).normalize()
+    pred_series = pred_df.iloc[:, 0] if isinstance(pred_df, pd.DataFrame) else pred_df
+    date_index = pd.to_datetime(pred_series.index.get_level_values(0)).normalize()
+    available_dates = sorted(pd.unique(date_index))
+    eligible_dates = [dt for dt in available_dates if pd.Timestamp(dt).normalize() <= signal_date]
+    if not eligible_dates:
+        raise RuntimeError(f"No prediction scores available on or before {signal_date.strftime('%Y-%m-%d')}")
+    chosen_date = pd.Timestamp(eligible_dates[-1]).normalize()
+    selected = pred_series[date_index == chosen_date]
+    if isinstance(selected.index, pd.MultiIndex):
+        selected.index = selected.index.get_level_values(-1)
+    selected.index = selected.index.map(str)
+    return selected.sort_values(ascending=False)
+
+
+def build_order_fill_comparison_dataframe(
+    planned_orders: pd.DataFrame,
+    fills: pd.DataFrame,
+    trade_date: pd.Timestamp,
+) -> pd.DataFrame:
+    trade_day = pd.Timestamp(trade_date).strftime("%Y-%m-%d")
+    planned = planned_orders.copy()
+    if not planned.empty:
+        planned = planned.loc[planned["intended_trade_date"] == trade_day].copy()
+        planned = planned.rename(
+            columns={
+                "signal_date": "plan_signal_date",
+                "intended_trade_date": "trade_date",
+                "rank": "planned_rank",
+                "order_qty_est": "planned_qty_est",
+                "price_reference": "planned_price_reference",
+                "target_weight": "planned_target_weight",
+                "target_value_est": "planned_target_value_est",
+                "blocked_by_tplus": "planned_blocked_by_tplus",
+                "requires_open_reprice": "planned_requires_open_reprice",
+                "price_model": "planned_price_model",
+                "note": "planned_note",
+            }
+        )
+        planned = planned[
+            [
+                "trade_date",
+                "plan_signal_date",
+                "instrument",
+                "side",
+                "planned_rank",
+                "planned_qty_est",
+                "planned_price_reference",
+                "planned_target_weight",
+                "planned_target_value_est",
+                "planned_blocked_by_tplus",
+                "planned_requires_open_reprice",
+                "planned_price_model",
+                "planned_note",
+            ]
+        ]
+
+    actual = fills.copy()
+    if not actual.empty:
+        actual = actual.rename(
+            columns={
+                "requested_qty": "actual_requested_qty",
+                "filled_qty": "actual_filled_qty",
+                "fill_rate": "actual_fill_rate",
+                "fill_price": "actual_fill_price",
+                "status": "actual_fill_status",
+            }
+        )
+        actual = actual[
+            [
+                "trade_date",
+                "instrument",
+                "side",
+                "actual_requested_qty",
+                "actual_filled_qty",
+                "actual_fill_rate",
+                "actual_fill_price",
+                "actual_fill_status",
+            ]
+        ]
+
+    if planned.empty and actual.empty:
+        return build_empty_order_fill_comparison_dataframe()
+
+    comparison = planned.merge(actual, on=["trade_date", "instrument", "side"], how="outer") if not planned.empty else actual.copy()
+    if planned.empty:
+        comparison["plan_signal_date"] = None
+        comparison["planned_rank"] = None
+        comparison["planned_qty_est"] = None
+        comparison["planned_price_reference"] = None
+        comparison["planned_target_weight"] = None
+        comparison["planned_target_value_est"] = None
+        comparison["planned_blocked_by_tplus"] = None
+        comparison["planned_requires_open_reprice"] = None
+        comparison["planned_price_model"] = None
+        comparison["planned_note"] = None
+
+    if actual.empty:
+        comparison["actual_requested_qty"] = None
+        comparison["actual_filled_qty"] = None
+        comparison["actual_fill_rate"] = None
+        comparison["actual_fill_price"] = None
+        comparison["actual_fill_status"] = None
+
+    for numeric_col in [
+        "planned_rank",
+        "planned_qty_est",
+        "actual_requested_qty",
+        "actual_filled_qty",
+        "planned_price_reference",
+        "actual_fill_price",
+        "planned_target_weight",
+        "planned_target_value_est",
+        "actual_fill_rate",
+    ]:
+        comparison[numeric_col] = pd.to_numeric(comparison[numeric_col], errors="coerce")
+
+    comparison["requested_vs_plan_qty_diff"] = comparison["actual_requested_qty"] - comparison["planned_qty_est"]
+    comparison["filled_vs_plan_qty_diff"] = comparison["actual_filled_qty"] - comparison["planned_qty_est"]
+    comparison["unfilled_qty"] = comparison["actual_requested_qty"] - comparison["actual_filled_qty"]
+
+    def comparison_status(row: pd.Series) -> str:
+        planned_qty = row.get("planned_qty_est")
+        actual_requested = row.get("actual_requested_qty")
+        actual_filled = row.get("actual_filled_qty")
+        blocked_by_tplus = bool(row.get("planned_blocked_by_tplus")) if pd.notna(row.get("planned_blocked_by_tplus")) else False
+        planned_exists = pd.notna(planned_qty)
+        actual_exists = pd.notna(actual_requested)
+        filled_exists = pd.notna(actual_filled) and float(actual_filled) > 0
+
+        if blocked_by_tplus and (not actual_exists or float(actual_requested) <= 0):
+            return "blocked_by_tplus"
+        if planned_exists and not actual_exists:
+            return "planned_but_not_requested"
+        if actual_exists and not planned_exists:
+            return "unexpected_request"
+        if not planned_exists and not actual_exists:
+            return "no_activity"
+
+        requested_diff = row.get("requested_vs_plan_qty_diff")
+        unfilled_qty = row.get("unfilled_qty")
+        if pd.notna(requested_diff) and abs(float(requested_diff)) > 1e-8:
+            if pd.notna(unfilled_qty) and abs(float(unfilled_qty)) > 1e-8:
+                return "repriced_and_partially_filled"
+            return "repriced_size_changed"
+        if pd.notna(unfilled_qty) and abs(float(unfilled_qty)) > 1e-8:
+            return "partial_or_unfilled"
+        if filled_exists:
+            return "matched_and_filled"
+        return "matched_but_zero_fill"
+
+    comparison["comparison_status"] = comparison.apply(comparison_status, axis=1)
+    comparison = comparison[
+        [
+            "trade_date",
+            "plan_signal_date",
+            "instrument",
+            "side",
+            "planned_rank",
+            "planned_qty_est",
+            "actual_requested_qty",
+            "actual_filled_qty",
+            "requested_vs_plan_qty_diff",
+            "filled_vs_plan_qty_diff",
+            "unfilled_qty",
+            "planned_price_reference",
+            "actual_fill_price",
+            "planned_target_weight",
+            "planned_target_value_est",
+            "planned_blocked_by_tplus",
+            "planned_requires_open_reprice",
+            "planned_price_model",
+            "actual_fill_rate",
+            "actual_fill_status",
+            "comparison_status",
+            "planned_note",
+        ]
+    ]
+    return comparison.sort_values(["side", "instrument"], na_position="last").reset_index(drop=True)
 
 
 def _compute_next_orders(
@@ -277,6 +488,7 @@ class ExtractedOutputs:
     nav_history: pd.DataFrame
     fills: pd.DataFrame
     orders_next_day: pd.DataFrame
+    order_fill_comparison: pd.DataFrame
     state_snapshot: object
 
 
@@ -290,27 +502,33 @@ def extract_outputs(
     calendar_dates: Iterable[pd.Timestamp],
     metadata: Dict[str, object],
 ) -> ExtractedOutputs:
-    trade_date = sorted(positions_dict.keys())[-1].normalize()
+    trade_dates = sorted(pd.Timestamp(dt).normalize() for dt in positions_dict.keys())
+    trade_date = trade_dates[-1]
     next_trade_date = infer_next_trade_date(trade_date, calendar_dates)
     position = positions_dict[trade_date]
     nav_history = build_nav_history_dataframe(report_df, positions_dict)
     fills = build_fills_dataframe(indicator_obj, trade_date)
-    if isinstance(pred_df, pd.DataFrame):
-        pred_series = pred_df.iloc[:, 0]
-    else:
-        pred_series = pred_df
-    latest_pred_date = pred_series.index.get_level_values(0).max()
-    latest_scores = pred_series.loc[pd.IndexSlice[latest_pred_date, :]]
-    if isinstance(latest_scores, pd.Series) and isinstance(latest_scores.index, pd.MultiIndex):
-        latest_scores.index = latest_scores.index.get_level_values(-1)
-    latest_scores.index = latest_scores.index.map(str)
+    latest_scores = _extract_scores_for_date(pred_df, trade_date)
     orders_next_day = _compute_next_orders(
         pred_series=latest_scores,
         position=position,
         profile=profile,
-        signal_date=pd.Timestamp(latest_pred_date).normalize(),
+        signal_date=trade_date,
         next_trade_date=next_trade_date,
     )
+    if len(trade_dates) > 1:
+        previous_trade_date = trade_dates[-2]
+        previous_position = positions_dict[previous_trade_date]
+        planned_for_today = _compute_next_orders(
+            pred_series=_extract_scores_for_date(pred_df, previous_trade_date),
+            position=previous_position,
+            profile=profile,
+            signal_date=previous_trade_date,
+            next_trade_date=trade_date,
+        )
+        order_fill_comparison = build_order_fill_comparison_dataframe(planned_for_today, fills, trade_date)
+    else:
+        order_fill_comparison = build_empty_order_fill_comparison_dataframe()
     report_row = nav_history.iloc[-1]
     state_snapshot = snapshot_from_position(
         position=position,
@@ -326,6 +544,7 @@ def extract_outputs(
         nav_history=nav_history,
         fills=fills,
         orders_next_day=orders_next_day,
+        order_fill_comparison=order_fill_comparison,
         state_snapshot=state_snapshot,
     )
 
@@ -340,22 +559,14 @@ def extract_preview_outputs(
 ) -> ExtractedOutputs:
     trade_date = pd.Timestamp(as_of_date).normalize()
     next_trade_date = infer_next_trade_date(trade_date, calendar_dates)
-    if isinstance(pred_df, pd.DataFrame):
-        pred_series = pred_df.iloc[:, 0]
-    else:
-        pred_series = pred_df
-    latest_pred_date = pred_series.index.get_level_values(0).max()
-    latest_scores = pred_series.loc[pd.IndexSlice[latest_pred_date, :]]
-    if isinstance(latest_scores, pd.Series) and isinstance(latest_scores.index, pd.MultiIndex):
-        latest_scores.index = latest_scores.index.get_level_values(-1)
-    latest_scores.index = latest_scores.index.map(str)
+    latest_scores = _extract_scores_for_date(pred_df, trade_date)
 
     cash_position = _CashOnlyPosition(profile.account)
     orders_next_day = _compute_next_orders(
         pred_series=latest_scores,
         position=cash_position,
         profile=profile,
-        signal_date=pd.Timestamp(latest_pred_date).normalize(),
+        signal_date=trade_date,
         next_trade_date=next_trade_date,
     )
     nav_history = pd.DataFrame(
@@ -391,6 +602,7 @@ def extract_preview_outputs(
         nav_history=nav_history,
         fills=fills,
         orders_next_day=orders_next_day,
+        order_fill_comparison=build_empty_order_fill_comparison_dataframe(),
         state_snapshot=state_snapshot,
     )
 
@@ -402,6 +614,7 @@ def write_outputs(paths, outputs: ExtractedOutputs, metadata: Dict[str, object])
     target_map = {
         "nav_history": "nav_history.csv",
         "orders_next_day": "orders_next_day.csv",
+        "order_fill_comparison": "order_fill_comparison.csv",
         "paper_state": "paper_state.json",
         "fills": f"fills_{trade_day}.csv",
         "metadata": "metadata.json",
@@ -409,6 +622,7 @@ def write_outputs(paths, outputs: ExtractedOutputs, metadata: Dict[str, object])
     output_paths = {name: daily_dir / filename for name, filename in target_map.items()}
     output_paths["latest_nav_history"] = latest_dir / target_map["nav_history"]
     output_paths["latest_orders_next_day"] = latest_dir / target_map["orders_next_day"]
+    output_paths["latest_order_fill_comparison"] = latest_dir / target_map["order_fill_comparison"]
     output_paths["latest_paper_state"] = latest_dir / target_map["paper_state"]
     output_paths["latest_fills"] = latest_dir / target_map["fills"]
     output_paths["latest_metadata"] = latest_dir / target_map["metadata"]
@@ -417,6 +631,8 @@ def write_outputs(paths, outputs: ExtractedOutputs, metadata: Dict[str, object])
     outputs.nav_history.to_csv(output_paths["latest_nav_history"], index=False)
     outputs.orders_next_day.to_csv(output_paths["orders_next_day"], index=False)
     outputs.orders_next_day.to_csv(output_paths["latest_orders_next_day"], index=False)
+    outputs.order_fill_comparison.to_csv(output_paths["order_fill_comparison"], index=False)
+    outputs.order_fill_comparison.to_csv(output_paths["latest_order_fill_comparison"], index=False)
     outputs.fills.to_csv(output_paths["fills"], index=False)
     outputs.fills.to_csv(output_paths["latest_fills"], index=False)
     outputs.state_snapshot.write_json(output_paths["paper_state"])

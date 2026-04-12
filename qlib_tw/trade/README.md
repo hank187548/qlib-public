@@ -41,6 +41,10 @@ Files:
 - `fills_YYYY-MM-DD.csv`
   - Derived from Qlib `indicators_normal_1day_obj.pkl`.
   - Contains requested quantity, filled quantity, side, fill rate, fill price, and cost.
+- `order_fill_comparison.csv`
+  - Compares the prior signal day's planned order with the current trade day's actual requested and filled quantity.
+  - Useful for checking how much buy sizing changed after the next-day `open` repricing.
+  - Includes `comparison_status` such as `matched_and_filled`, `repriced_size_changed`, and `planned_but_not_requested`.
 - `nav_history.csv`
   - Full daily account history up to the replay end date.
   - Includes account value, market value, cash, cash delay, turnover, cost, and excess return series.
@@ -116,3 +120,8 @@ You can override behavior with env vars:
 A ready-to-paste cron sample is included at:
 
 - [configs/trade/paper_trade_daily.crontab.example](/home/nas2/Personal/Hank/qlib-public/configs/trade/paper_trade_daily.crontab.example)
+
+Recommended schedule:
+
+- One run before the session starts to refresh the preview `orders_next_day.csv`.
+- One run after the close to refresh `fills`, `paper_state`, `nav_history`, and `order_fill_comparison.csv`.
