@@ -192,7 +192,6 @@ class ExecutionGridConfig:
     rebalance_values: List[str] | None = None
     limit_tplus_values: List[bool] | None = None
     risk_degree_values: List[float] | None = None
-    limit_slippage_values: List[float] | None = None
     settlement_lag_values: List[int] | None = None
 
     @classmethod
@@ -220,7 +219,6 @@ class ExecutionGridConfig:
             rebalance_values=[str(v) for v in payload.get("rebalance_values", [])] or None,
             limit_tplus_values=[_parse_bool_token(v) for v in payload.get("limit_tplus_values", [])] or None,
             risk_degree_values=[float(v) for v in payload.get("risk_degree_values", [])] or None,
-            limit_slippage_values=[float(v) for v in payload.get("limit_slippage_values", [])] or None,
             settlement_lag_values=[int(v) for v in payload.get("settlement_lag_values", [])] or None,
         )
 
@@ -237,11 +235,10 @@ def build_strategy_variants(config: ExecutionGridConfig, base_profile: PaperTrad
     rebalance_values = config.rebalance_values or [base_profile.rebalance]
     limit_tplus_values = config.limit_tplus_values or [base_profile.limit_tplus]
     risk_degree_values = config.risk_degree_values or [base_profile.risk_degree]
-    limit_slippage_values = config.limit_slippage_values or [base_profile.limit_slippage]
     settlement_lag_values = config.settlement_lag_values or [base_profile.settlement_lag]
 
     variants: List[Dict[str, Any]] = []
-    for topk, n_drop, strategy, deal_price, rebalance, limit_tplus, risk_degree, limit_slippage, settlement_lag in itertools.product(
+    for topk, n_drop, strategy, deal_price, rebalance, limit_tplus, risk_degree, settlement_lag in itertools.product(
         topk_values,
         n_drop_values,
         strategy_values,
@@ -249,7 +246,6 @@ def build_strategy_variants(config: ExecutionGridConfig, base_profile: PaperTrad
         rebalance_values,
         limit_tplus_values,
         risk_degree_values,
-        limit_slippage_values,
         settlement_lag_values,
     ):
         variants.append(
@@ -261,7 +257,6 @@ def build_strategy_variants(config: ExecutionGridConfig, base_profile: PaperTrad
                 "rebalance": str(rebalance),
                 "limit_tplus": bool(limit_tplus),
                 "risk_degree": float(risk_degree),
-                "limit_slippage": float(limit_slippage),
                 "settlement_lag": int(settlement_lag),
             }
         )
@@ -278,7 +273,6 @@ def _build_variant_profile(base_profile: PaperTradingProfile, variant: Dict[str,
         rebalance=str(variant["rebalance"]),
         limit_tplus=bool(variant["limit_tplus"]),
         risk_degree=float(variant["risk_degree"]),
-        limit_slippage=float(variant["limit_slippage"]),
         settlement_lag=int(variant["settlement_lag"]),
     )
 

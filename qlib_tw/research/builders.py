@@ -103,7 +103,6 @@ def apply_strategy_overrides(
                 "start_time": port_config["backtest"]["start_time"],
                 "end_time": port_config["backtest"]["end_time"],
                 "codes": task_cfg["dataset"]["kwargs"]["handler"]["kwargs"]["instruments"],
-                "limit_slippage": 0.01,
                 "settlement_lag": 2,
             },
         }

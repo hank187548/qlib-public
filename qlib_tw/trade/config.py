@@ -30,7 +30,6 @@ class PaperTradingProfile:
     rebalance: str = "day"
     deal_price: str = "close"
     limit_tplus: bool = True
-    limit_slippage: float = 0.01
     settlement_lag: int = 2
     risk_degree: float = 0.95
     account: float = 1_000_000.0
@@ -70,7 +69,6 @@ class PaperTradingProfile:
             rebalance=str(payload.get("rebalance", "day")),
             deal_price=str(payload.get("deal_price", "close")),
             limit_tplus=bool(payload.get("limit_tplus", True)),
-            limit_slippage=float(payload.get("limit_slippage", 0.01)),
             settlement_lag=int(payload.get("settlement_lag", 2)),
             risk_degree=float(payload.get("risk_degree", 0.95)),
             account=float(payload.get("account", 1_000_000.0)),

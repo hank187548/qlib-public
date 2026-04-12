@@ -147,12 +147,10 @@ def _dynamic_port_config(profile: PaperTradingProfile, task_cfg: dict, effective
         strategy_choice=profile.strategy,
         deal_price=profile.deal_price,
         limit_tplus=profile.limit_tplus,
-        limit_slippage=profile.limit_slippage,
     )
     port_config["strategy"]["kwargs"]["risk_degree"] = profile.risk_degree
     if profile.limit_tplus:
         tplus_exchange_kwargs = port_config["backtest"]["exchange_kwargs"]["exchange"]["kwargs"]
-        tplus_exchange_kwargs["limit_slippage"] = profile.limit_slippage
         tplus_exchange_kwargs["settlement_lag"] = profile.settlement_lag
     return port_config
 
