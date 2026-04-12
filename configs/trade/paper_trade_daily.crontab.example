@@ -8,7 +8,7 @@ CRON_TZ=Asia/Taipei
 
 # Close run after market close.
 # This refreshes fills, paper_state, nav_history, and order_fill_comparison.csv.
-10 16 * * 1-5 /home/nas2/Personal/Hank/qlib-public/scripts/trade/run_paper_trade_daily.sh
+00 20 * * 1-5 /home/nas2/Personal/Hank/qlib-public/scripts/trade/run_paper_trade_daily.sh
 
 # Example override:
-# 10 16 * * 1-5 PAPER_TRADE_CONFIG=/home/nas2/Personal/Hank/qlib-public/configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json /home/nas2/Personal/Hank/qlib-public/scripts/trade/run_paper_trade_daily.sh
+# 00 20 * * 1-5 PAPER_TRADE_CONFIG=/home/nas2/Personal/Hank/qlib-public/configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json /home/nas2/Personal/Hank/qlib-public/scripts/trade/run_paper_trade_daily.sh
