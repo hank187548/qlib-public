@@ -208,6 +208,14 @@ Paper trading scheduler wrapper:
 bash scripts/trade/run_paper_trade_daily.sh
 ```
 
+Container-friendly long-running scheduler:
+
+```bash
+nohup bash scripts/trade/run_paper_trade_scheduler.sh >/dev/null 2>&1 &
+```
+
+This checks Taipei time continuously and triggers the paper-trading wrapper at `08:30` and `20:00`.
+
 Cron example:
 
 ```bash

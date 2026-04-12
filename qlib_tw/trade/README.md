@@ -125,3 +125,22 @@ Recommended schedule:
 
 - One run before the session starts to refresh the preview `orders_next_day.csv`.
 - One run after the close to refresh `fills`, `paper_state`, `nav_history`, and `order_fill_comparison.csv`.
+
+If the environment does not have `cron`, use the long-running scheduler instead:
+
+```bash
+nohup bash scripts/trade/run_paper_trade_scheduler.sh >/dev/null 2>&1 &
+```
+
+Useful controls:
+
+- `tail -f outputs/paper_trading/_scheduler_logs/paper_trade_scheduler.log`
+- `ps -ef | grep run_paper_trade_scheduler.sh`
+- `pkill -f run_paper_trade_scheduler.sh`
+
+Scheduler env vars:
+
+- `PAPER_TRADE_SCHEDULE="08:30 20:00"`
+- `PAPER_TRADE_POLL_SECONDS=30`
+- `PAPER_TRADE_SCHEDULER_TZ=Asia/Taipei`
+- `PAPER_TRADE_SCHEDULER_EXIT_AFTER_RUN=1` for one-shot testing
