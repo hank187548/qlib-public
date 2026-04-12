@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-Custom exchange for a simple limit-order-style fill on Taiwan stocks.
+Custom exchange implementations for Taiwan equities.
 
-This is a conservative day-level approximation:
-- Uses base_price (default $open) and applies limit_slippage to form a limit price.
-- Buy: fills only if day's high >= limit price; fill price = min(base_price, limit_price).
-- Sell: fills only if day's low <= limit price; fill price = max(base_price, limit_price).
-- No order book, no partial-day path, just a coarse filter to avoid assuming "always fills at close".
+Two execution modes are supported:
+- `TWLimitExchange`: a conservative intraday touch model used for optional limit-order simulation.
+- `TPlusLimitExchange`: historical class name kept for compatibility, but the T+2 paper-trading path
+  now executes at the next session `open` without an additional intraday touch requirement.
 
-Note: This does not model partial fills or intraday queueing; it's meant to be stricter than the
-default "always at close" assumption but still lightweight.
+The shared extensions here are the Taiwan-specific fee model, odd-lot minimum fee handling,
+and T+N settlement state tracking.
 """
 
 from __future__ import annotations
@@ -125,13 +124,10 @@ class TWLimitExchange(Exchange):
                 return base_price, False
             return max(base_price, limit_price), True
 
-    def _calc_trade_info_by_order(self, order, position, dealt_order_amount):
-        trade_price, touched = self._get_price_with_limit(
-            order.stock_id, order.start_time, order.end_time, direction=order.direction
-        )
-        if trade_price is None or not touched:
+    def _calc_trade_info_core(self, order, position, dealt_order_amount, trade_price):
+        if trade_price is None or np.isnan(trade_price) or trade_price <= 0:
             order.deal_amount = 0.0
-            return np.nan if trade_price is None else float(trade_price), 0.0, 0.0
+            return np.nan, 0.0, 0.0
 
         total_trade_val = float(self.get_volume(order.stock_id, order.start_time, order.end_time)) * trade_price
         order.factor = self.get_factor(order.stock_id, order.start_time, order.end_time)
@@ -189,6 +185,15 @@ class TWLimitExchange(Exchange):
             factor=order.factor,
         )
         return float(trade_price), float(trade_val), float(trade_cost)
+
+    def _calc_trade_info_by_order(self, order, position, dealt_order_amount):
+        trade_price, touched = self._get_price_with_limit(
+            order.stock_id, order.start_time, order.end_time, direction=order.direction
+        )
+        if trade_price is None or not touched:
+            order.deal_amount = 0.0
+            return np.nan if trade_price is None else float(trade_price), 0.0, 0.0
+        return self._calc_trade_info_core(order, position, dealt_order_amount, trade_price)
 
 
 class TPlusExchange(Exchange):
@@ -309,8 +314,12 @@ class TPlusExchange(Exchange):
 
 class TPlusLimitExchange(TWLimitExchange):
     """
-    Simplified limit order + T+N settlement:
-    - Reuse TWLimitExchange limit logic (base_price * slippage, fill on touch)
+    Historical compatibility name for next-open T+N settlement with Taiwan-specific costs.
+
+    This path no longer requires an extra intraday touch filter.
+    It executes using the configured base deal price (currently `open` for paper trading)
+    and applies T+N settlement timing on top.
+
     - Buy: cash is deducted immediately; shares settle and become sellable after T+N
     - Sell: shares are deducted immediately; cash settles and becomes usable after T+N
     """
@@ -383,9 +392,20 @@ class TPlusLimitExchange(TWLimitExchange):
                 return 0.0, 0.0, np.nan
             order.amount = min(order.amount, avail)
 
-        # Evaluate fill conditions first
-        trade_price, trade_val, trade_cost = TWLimitExchange._calc_trade_info_by_order(
-            self, order, pos, dealt_order_amount
+        # Execute directly on the configured base deal price; no extra high/low touch filter.
+        trade_price = Exchange.get_deal_price(
+            self,
+            order.stock_id,
+            order.start_time,
+            order.end_time,
+            direction=order.direction,
+        )
+        trade_price, trade_val, trade_cost = TWLimitExchange._calc_trade_info_core(
+            self,
+            order,
+            pos,
+            dealt_order_amount,
+            trade_price,
         )
         if trade_val <= 1e-5:
             return float(trade_price), float(trade_val), float(trade_cost)

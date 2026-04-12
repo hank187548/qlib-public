@@ -62,8 +62,8 @@ Files:
 ## Key Risks
 
 - The current T+2 model is not a broker-native order model.
-  - It uses next-day `open` and same-day `high/low` to decide fills.
-  - This is valid for paper validation after the fact, but not a perfect pre-open broker instruction.
+  - It now executes on the next-day `open` with T+2 settlement.
+  - This is closer to the intended backtest assumption, but it is still not a broker-native pre-open order model.
 - `orders_next_day.csv` buy quantities are estimates.
   - Exact next-day buy sizing requires the next open, which is unavailable at signal generation time.
 - `next_trade_date` uses business-day fallback when future exchange sessions are not present in the local provider calendar.

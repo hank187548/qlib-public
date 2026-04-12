@@ -226,7 +226,7 @@ def _compute_next_orders(
                 "order_qty_est": sellable_qty,
                 "requires_open_reprice": False,
                 "blocked_by_tplus": blocked_by_tplus,
-                "price_model": "next_open_with_intraday_limit_check" if profile.limit_tplus else profile.effective_deal_price,
+                "price_model": "next_open_tplus_execution" if profile.limit_tplus else profile.effective_deal_price,
                 "note": "dropout_sell_blocked_by_tplus" if blocked_by_tplus else "dropout_sell",
             }
         )
@@ -259,8 +259,8 @@ def _compute_next_orders(
                 "order_qty_est": order_qty_est,
                 "requires_open_reprice": True,
                 "blocked_by_tplus": False,
-                "price_model": "next_open_with_intraday_limit_check" if profile.limit_tplus else profile.effective_deal_price,
-                "note": "next_day_open_unknown_in_backtest_model",
+                "price_model": "next_open_tplus_execution" if profile.limit_tplus else profile.effective_deal_price,
+                "note": "next_day_open_quantity_estimated_from_latest_close",
             }
         )
 
