@@ -202,6 +202,24 @@ python3 scripts/trade/paper_trade_daily.py \
   --target-date 2026-04-11
 ```
 
+Paper trading scheduler wrapper:
+
+```bash
+bash scripts/trade/run_paper_trade_daily.sh
+```
+
+Cron example:
+
+```bash
+crontab -e
+```
+
+Then paste the line from:
+
+```text
+configs/trade/paper_trade_daily.crontab.example
+```
+
 Execution grid search:
 
 ```bash

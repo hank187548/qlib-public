@@ -92,3 +92,27 @@ Run the daily replay with:
 ```
 
 Refresh is on by default. Pass `--no-refresh-data` if you want to replay without updating `Data/tw_data` first.
+
+For unattended runs, use the shell wrapper:
+
+```bash
+bash scripts/trade/run_paper_trade_daily.sh
+```
+
+It uses:
+
+- `configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json` by default
+- `.venv/bin/python` by default
+- `outputs/paper_trading/_scheduler_logs/` for daily logs
+- `flock` when available to prevent overlapping runs
+
+You can override behavior with env vars:
+
+- `PAPER_TRADE_CONFIG`
+- `PAPER_TRADE_PYTHON`
+- `PAPER_TRADE_TARGET_DATE`
+- `PAPER_TRADE_REFRESH_DATA=0` to skip data refresh
+
+A ready-to-paste cron sample is included at:
+
+- [configs/trade/paper_trade_daily.crontab.example](/home/nas2/Personal/Hank/qlib-public/configs/trade/paper_trade_daily.crontab.example)

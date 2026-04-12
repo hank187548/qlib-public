@@ -1,0 +1,10 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Taipei
+
+# Run paper trading every weekday at 16:10 Taipei time.
+# The wrapper uses the default paper-trading profile unless PAPER_TRADE_CONFIG is overridden.
+10 16 * * 1-5 /home/nas2/Personal/Hank/qlib-public/scripts/trade/run_paper_trade_daily.sh
+
+# Example override:
+# 10 16 * * 1-5 PAPER_TRADE_CONFIG=/home/nas2/Personal/Hank/qlib-public/configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json /home/nas2/Personal/Hank/qlib-public/scripts/trade/run_paper_trade_daily.sh
