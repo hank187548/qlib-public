@@ -1,0 +1,16 @@
+{
+  "name": "alpha158_adj_lgb_pro_fil_1m_tplus_adjpx_20260413",
+  "paper_profile": "configs/trade/paper_trading.alpha158_adj_lgb_pro_fil_1m_tplus_hist.json",
+  "target_date": "2026-04-13",
+  "output_root": "outputs/execution_grid",
+  "ranking_metric": "risk.excess_return_with_cost.annualized_return",
+  "minimize_metric": false,
+  "refresh_data": false,
+  "topk_values": [8, 10, 15, 20],
+  "n_drop_values": [1, 2, 3, 5],
+  "strategy_values": ["bucket", "equal"],
+  "deal_price_values": ["open"],
+  "rebalance_values": ["day"],
+  "limit_tplus_values": [true],
+  "risk_degree_values": [0.9, 0.95, 0.98]
+}
