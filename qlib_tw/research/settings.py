@@ -93,6 +93,8 @@ HANDLER_CONFIGS: Dict[str, Dict[str, str]] = {
     "alpha158": {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
     "alpha360": {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"},
     "alpha191": {"class": "Alpha191", "module_path": "qlib.contrib.data.handler"},
+    "alpha158_adj": {"class": "AdjustedAlpha158", "module_path": "qlib_tw.research.adjusted_handlers"},
+    "alpha360_adj": {"class": "AdjustedAlpha360", "module_path": "qlib_tw.research.adjusted_handlers"},
 }
 
 ALPHA158_INFER_PIPELINE = [
@@ -115,7 +117,21 @@ COMBO_CONFIGS = {
         "max_instruments": None,
         "infer_processors": ALPHA158_INFER_PIPELINE,
     },
+    "alpha158_adj_lgb": {"handler": "alpha158_adj", "model": "lgb", "max_instruments": None, "infer_processors": []},
+    "alpha158_adj_lgb_run11": {
+        "handler": "alpha158_adj",
+        "model": "lgb_run11",
+        "max_instruments": None,
+        "infer_processors": [],
+    },
+    "alpha158_adj_lgb_pro_fil": {
+        "handler": "alpha158_adj",
+        "model": "lgb",
+        "max_instruments": None,
+        "infer_processors": ALPHA158_INFER_PIPELINE,
+    },
     "alpha360_lgb": {"handler": "alpha360", "model": "lgb", "max_instruments": None, "infer_processors": []},
+    "alpha360_adj_lgb": {"handler": "alpha360_adj", "model": "lgb", "max_instruments": None, "infer_processors": []},
     "alpha191_lgb": {"handler": "alpha191", "model": "lgb", "max_instruments": None, "infer_processors": []},
     "alpha158_xgb": {
         "handler": "alpha158",
@@ -123,10 +139,19 @@ COMBO_CONFIGS = {
         "max_instruments": None,
         "infer_processors": ALPHA158_INFER_PIPELINE,
     },
+    "alpha158_adj_xgb": {
+        "handler": "alpha158_adj",
+        "model": "xgb",
+        "max_instruments": None,
+        "infer_processors": ALPHA158_INFER_PIPELINE,
+    },
     "alpha360_xgb": {"handler": "alpha360", "model": "xgb", "max_instruments": None, "infer_processors": []},
+    "alpha360_adj_xgb": {"handler": "alpha360_adj", "model": "xgb", "max_instruments": None, "infer_processors": []},
     "alpha191_xgb": {"handler": "alpha191", "model": "xgb", "max_instruments": None, "infer_processors": []},
     "alpha158_cat": {"handler": "alpha158", "model": "cat", "max_instruments": None, "infer_processors": []},
+    "alpha158_adj_cat": {"handler": "alpha158_adj", "model": "cat", "max_instruments": None, "infer_processors": []},
     "alpha360_cat": {"handler": "alpha360", "model": "cat", "max_instruments": None, "infer_processors": []},
+    "alpha360_adj_cat": {"handler": "alpha360_adj", "model": "cat", "max_instruments": None, "infer_processors": []},
 }
 
 BASE_PORT_ANALYSIS_CONFIG: Dict[str, object] = {

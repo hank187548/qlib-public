@@ -99,6 +99,12 @@ pip install pyqlib lightgbm xgboost catboost pandas numpy matplotlib plotly
 python3 scripts/research/train_tw.py --combo alpha158_lgb_run11
 ```
 
+Forward-adjusted research variant:
+
+```bash
+python3 scripts/research/train_tw.py --combo alpha158_adj_lgb_run11
+```
+
 ### 2) Backtest using trained models
 
 ```bash
