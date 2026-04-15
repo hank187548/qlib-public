@@ -9,6 +9,7 @@ import matplotlib
 import pandas as pd
 import plotly.io as pio
 from qlib.contrib.report import analysis_model, analysis_position
+from qlib.workflow.record_temp import SignalRecord
 
 from qlib_tw.research.paths import WorkflowPaths
 
@@ -117,6 +118,17 @@ def save_figure(fig, path: Path) -> None:
     fig.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     LOGGER.info("Saved chart: %s", path)
+
+
+def _load_raw_label(recorder, model_dataset) -> pd.DataFrame | None:
+    try:
+        raw_label = recorder.load_object("label.pkl")
+    except (FileNotFoundError, KeyError):
+        raw_label = SignalRecord.generate_label(model_dataset)
+    if raw_label is None:
+        LOGGER.warning("Raw label is unavailable; skip pred/label analysis outputs")
+        return None
+    return raw_label
 
 
 def dump_report_frames(
@@ -256,12 +268,15 @@ def dump_report_frames(
         fig.autofmt_xdate()
         save_figure(fig, paths.fig_dir / "turnover.png")
 
-    label_df = model_dataset.prepare("test", col_set="label")
+    label_df = _load_raw_label(recorder, model_dataset)
+    if label_df is None:
+        LOGGER.warning("Prediction/label report generation skipped because raw label is missing")
+        return
     label_df.columns = ["label"]
     combined = pred_df.join(label_df, how="left").dropna()
     pred_label_path = paths.report_dir / "pred_label.csv"
     combined.reset_index().to_csv(pred_label_path, index=False)
-    LOGGER.info("Prediction/label data exported to %s", pred_label_path)
+    LOGGER.info("Prediction/raw-label data exported to %s", pred_label_path)
 
     def _calc_ic(group: pd.DataFrame) -> float:
         if group["score"].nunique() <= 1 or group["label"].nunique() <= 1:

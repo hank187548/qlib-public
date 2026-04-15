@@ -27,7 +27,7 @@ def default_bucket_weights(topk: int) -> list[float]:
     return weights[:topk]
 
 
-def fetch_close_prices(codes: Iterable[str], dt: pd.Timestamp) -> Dict[str, float]:
+def fetch_close_prices(codes: Iterable[str], dt: pd.Timestamp, *, adjusted: bool = False) -> Dict[str, float]:
     codes = sorted({str(code) for code in codes})
     if not codes:
         return {}
@@ -396,7 +396,11 @@ def _compute_next_orders(
     sell = [code for code in last if code in sell_set]
     buy = list(today[: len(sell) + profile.topk - len(last)])
 
-    close_prices = fetch_close_prices(set(sell) | set(buy), signal_date)
+    close_prices = fetch_close_prices(
+        set(sell) | set(buy),
+        signal_date,
+        adjusted=profile.adjust_prices_for_backtest,
+    )
     close_cost = float(profile.close_cost)
     locked_map = _locked_stock_map(position)
     qty_map = {str(code): float(position.get_stock_amount(code)) for code in position.get_stock_list()}
@@ -466,12 +470,12 @@ def _compute_next_orders(
                 "target_weight": bucket_weight,
                 "target_value_est": target_value,
                 "price_reference": price_ref,
-                "quantity_basis": "estimated_from_latest_close",
+                "quantity_basis": "estimated_from_adjusted_close" if profile.adjust_prices_for_backtest else "estimated_from_latest_close",
                 "order_qty_est": order_qty_est,
                 "requires_open_reprice": True,
                 "blocked_by_tplus": False,
                 "price_model": "next_open_tplus_execution" if profile.limit_tplus else profile.effective_deal_price,
-                "note": "next_day_open_quantity_estimated_from_latest_close",
+                "note": "next_day_open_quantity_estimated_from_adjusted_close" if profile.adjust_prices_for_backtest else "next_day_open_quantity_estimated_from_latest_close",
             }
         )
 

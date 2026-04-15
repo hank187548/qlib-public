@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
         "--refresh-data",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Refresh Data/tw_data before replaying. Default: refresh; pass --no-refresh-data to skip.",
+        help="Refresh the default qlib provider data before replaying. Default: refresh; pass --no-refresh-data to skip.",
     )
     return parser.parse_args()
 

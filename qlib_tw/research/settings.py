@@ -4,9 +4,11 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
+from qlib_tw.data_layout import QLIB_DATA_DIR
 
 WORK_DIR = Path(__file__).resolve().parents[2]
-PROVIDER_URI = WORK_DIR / "Data" / "tw_data"
+PROVIDER_URI = QLIB_DATA_DIR.resolve()
+PROVIDER_CORE_ADJUSTED = True
 REGION = "tw"
 BENCHMARK = "^TWII"
 DEFAULT_COMBO = "alpha158_lgb"
@@ -92,9 +94,8 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
 HANDLER_CONFIGS: Dict[str, Dict[str, str]] = {
     "alpha158": {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
     "alpha360": {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"},
-    "alpha191": {"class": "Alpha191", "module_path": "qlib.contrib.data.handler"},
-    "alpha158_adj": {"class": "AdjustedAlpha158", "module_path": "qlib_tw.research.adjusted_handlers"},
-    "alpha360_adj": {"class": "AdjustedAlpha360", "module_path": "qlib_tw.research.adjusted_handlers"},
+    "alpha158_adj": {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
+    "alpha360_adj": {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"},
 }
 
 ALPHA158_INFER_PIPELINE = [
@@ -132,7 +133,6 @@ COMBO_CONFIGS = {
     },
     "alpha360_lgb": {"handler": "alpha360", "model": "lgb", "max_instruments": None, "infer_processors": []},
     "alpha360_adj_lgb": {"handler": "alpha360_adj", "model": "lgb", "max_instruments": None, "infer_processors": []},
-    "alpha191_lgb": {"handler": "alpha191", "model": "lgb", "max_instruments": None, "infer_processors": []},
     "alpha158_xgb": {
         "handler": "alpha158",
         "model": "xgb",
@@ -147,9 +147,14 @@ COMBO_CONFIGS = {
     },
     "alpha360_xgb": {"handler": "alpha360", "model": "xgb", "max_instruments": None, "infer_processors": []},
     "alpha360_adj_xgb": {"handler": "alpha360_adj", "model": "xgb", "max_instruments": None, "infer_processors": []},
-    "alpha191_xgb": {"handler": "alpha191", "model": "xgb", "max_instruments": None, "infer_processors": []},
     "alpha158_cat": {"handler": "alpha158", "model": "cat", "max_instruments": None, "infer_processors": []},
     "alpha158_adj_cat": {"handler": "alpha158_adj", "model": "cat", "max_instruments": None, "infer_processors": []},
+    "alpha158_adj_cat_pro_fil": {
+        "handler": "alpha158_adj",
+        "model": "cat",
+        "max_instruments": None,
+        "infer_processors": ALPHA158_INFER_PIPELINE,
+    },
     "alpha360_cat": {"handler": "alpha360", "model": "cat", "max_instruments": None, "infer_processors": []},
     "alpha360_adj_cat": {"handler": "alpha360_adj", "model": "cat", "max_instruments": None, "infer_processors": []},
 }

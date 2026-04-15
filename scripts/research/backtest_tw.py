@@ -22,11 +22,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--combo", choices=combo_choices(), nargs="+", help="Combos to backtest (default alpha158_lgb). Use all to run all combos.")
     parser.add_argument("--n-drop", type=int, default=None, help="Override TopkDropout n_drop")
     parser.add_argument("--topk", type=int, default=None, help="Override TopkDropout topk")
+    parser.add_argument("--end-time", default=None, help="Override test/backtest end date, e.g. 2026-04-10")
     parser.add_argument("--rebalance", choices=["day", "week"], default="day", help="Backtest rebalance frequency")
     parser.add_argument("--strategy", choices=["bucket", "equal"], default="bucket", help="bucket weighting / equal weighting")
     parser.add_argument("--deal-price", choices=["close", "open"], default="close", help="Execution price assumption for backtest")
     parser.add_argument("--limit-tplus", action="store_true", help="Enable next-open limit order + T+2 settlement")
     parser.add_argument("--recorder-id", default=None, help="Specify recorder id from training experiment; if omitted, use the latest recorder.")
+    parser.add_argument("--account", type=float, default=None, help="Override backtest initial account value")
+    parser.add_argument("--risk-degree", type=float, default=None, help="Override strategy risk_degree")
+    parser.add_argument("--adjust-prices", action="store_true", help="Adjust execution/valuation prices by provider $factor for theoretical total-return backtests")
     return parser.parse_args()
 
 
@@ -52,6 +56,10 @@ def main() -> None:
             deal_price=args.deal_price,
             limit_tplus=args.limit_tplus,
             recorder_override=args.recorder_id,
+            account_override=args.account,
+            risk_degree_override=args.risk_degree,
+            adjust_prices_for_backtest=args.adjust_prices,
+            backtest_end_time=args.end_time,
         )
 
 

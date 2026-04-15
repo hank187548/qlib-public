@@ -33,6 +33,7 @@ def build_effective_name(
     simulate_limit: bool = False,
     limit_slippage: float = 0.01,
     limit_tplus: bool = False,
+    adjust_prices_for_backtest: bool = False,
 ) -> str:
     effective_name = combo_name
     if n_drop_override is not None:
@@ -51,4 +52,6 @@ def build_effective_name(
         effective_name = f"{effective_name}_simlimit{slippage_tag}"
     if limit_tplus:
         effective_name = f"{effective_name}_tplus"
+    if adjust_prices_for_backtest:
+        effective_name = f"{effective_name}_adjpx"
     return effective_name

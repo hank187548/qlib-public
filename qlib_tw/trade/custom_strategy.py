@@ -49,6 +49,10 @@ class BucketWeightTopkDropout(TopkDropoutStrategy):
             return li
 
         current_temp: Position = copy.deepcopy(self.trade_position)
+        current_dt = trade_start_time.normalize()
+        release_pending = getattr(self.trade_exchange, "_release_pending", None)
+        if callable(release_pending):
+            release_pending(current_temp, current_dt)
         sell_order_list = []
         buy_order_list = []
         cash = current_temp.get_cash()
@@ -63,8 +67,6 @@ class BucketWeightTopkDropout(TopkDropoutStrategy):
         )
         comb = pred_score.reindex(last.union(pd.Index(today))).sort_values(ascending=False).index
         sell = last[last.isin(get_last_n(comb, self.n_drop))]
-        buy = today[: len(sell) + self.topk - len(last)]
-
         # Sell first
         for code in current_stock_list:
             if not self.trade_exchange.is_stock_tradable(
@@ -88,10 +90,19 @@ class BucketWeightTopkDropout(TopkDropoutStrategy):
                 )
                 if self.trade_exchange.check_order(sell_order):
                     sell_order_list.append(sell_order)
-                    trade_val, trade_cost, trade_price = self.trade_exchange.deal_order(
-                        sell_order, position=current_temp
-                    )
-                    cash += trade_val - trade_cost
+                    self.trade_exchange.deal_order(sell_order, position=current_temp)
+
+        # `deal_order` already updates the temporary position.
+        # Re-read cash from the simulated position instead of manually adding sale proceeds.
+        # This is critical for T+N settlement because pending cash must not become available
+        # for immediate reuse on the same rebalance step.
+        cash = current_temp.get_cash()
+        held_after_sell = pd.Index(current_temp.get_stock_list())
+        open_slots = max(self.topk - len(held_after_sell), 0)
+        buy = get_first_n(
+            pred_score[~pred_score.index.isin(held_after_sell)].sort_values(ascending=False).index,
+            open_slots,
+        )
 
         # Bucketed weights
         weights = self._get_bucket_weights()

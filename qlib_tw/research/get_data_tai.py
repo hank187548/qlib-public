@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
 Download Taiwan stock data from Yahoo Finance and TWSE open APIs, then
-transform them into Qlib-compatible format.
+transform them into a Qlib provider dataset.
 
 Two workflows are supported:
 - `collect`: Use Yahoo Finance to fetch historical daily bars for Taiwan
-  tickers, convert them into Qlib binary storage (`calendars/`, `features/`,
-  `instruments/`).
+  tickers, store the raw download snapshot under `raw_data/`, then convert
+  them into Qlib binary storage under `qlib_data/`.
+- `dump`: Rebuild `qlib_data/` directly from an existing `raw_data/`
+  snapshot without re-downloading Yahoo data.
 - `openapi`: Fetch the latest TWSE open-data datasets (e.g., BWIBBU_ALL) and
   store the JSON/CSV snapshots locally.
 
@@ -17,6 +19,7 @@ freely.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 import time
@@ -28,15 +31,21 @@ import numpy as np
 import pandas as pd
 import requests
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from qlib_tw.data_layout import QLIB_DATA_DIR, RAW_DATA_DIR
+
 LOG = logging.getLogger("GetDataTai")
 
 DEFAULT_COLLECT_CONFIG = {
     # Update these two dates to control the Yahoo download window.
     "start": "2009-01-01",
-    "end": "2025-11-03",
+    "end": pd.Timestamp.today().normalize().strftime("%Y-%m-%d"),
     # Update these paths if you want to store the dataset elsewhere.
-    "target_dir": Path("Data/tw_data"),
-    "tmp_dir": Path("Data/_raw_yahoo"),
+    "target_dir": QLIB_DATA_DIR,
+    "raw_dir": RAW_DATA_DIR,
     # Leave symbols=None to fetch the entire TWSE list automatically.
     "symbols": None,
     "suffix": ".TW",
@@ -197,11 +206,14 @@ class YahooTaiwanCollector:
         df["value"] = df["close"] * df["volume"].fillna(0)
         df["change"] = df["close"].diff().fillna(0)
         df["transactions"] = np.nan
-        df["vwap"] = df["value"] / df["volume"].where(df["volume"] != 0, np.nan)
+        # Yahoo daily bars do not provide a true intraday VWAP. Use raw-price
+        # HLC3 here and convert it together with OHLC during qlib_data dump.
+        df["vwap"] = (df["high"] + df["low"] + df["close"]) / 3.0
         if "adj_close" in df.columns:
             adj_factor = df["adj_close"] / df["close"].replace(0, np.nan)
             df["factor"] = adj_factor.fillna(1.0)
         else:
+            df["adj_close"] = np.nan
             df["factor"] = 1.0
         columns = [
             "symbol",
@@ -210,6 +222,7 @@ class YahooTaiwanCollector:
             "high",
             "low",
             "close",
+            "adj_close",
             "volume",
             "value",
             "change",
@@ -320,7 +333,7 @@ class TWSEOpenAPICollector:
 
 
 # ---------------------------------------------------------------------------
-# Qlib dumper (unchanged)
+# Qlib dumper
 # ---------------------------------------------------------------------------
 
 
@@ -372,6 +385,7 @@ class QlibDumper:
         for symbol, rows in all_data.items():
             self._dump_symbol(symbol, rows)
         self._dump_instruments()
+        self._dump_metadata()
         LOG.info("Dumped data into %s", self.output_dir)
 
     def _load_all_data(self) -> Dict[str, List[Dict[str, float]]]:
@@ -381,8 +395,46 @@ class QlibDumper:
             if df.empty:
                 continue
             symbol = fname_to_code(csv_path.stem).upper()
-            data[symbol] = df.to_dict(orient="records")
+            data[symbol] = self._to_qlib_frame(df).to_dict(orient="records")
         return data
+
+    @staticmethod
+    def _normalize_factor(series: pd.Series) -> pd.Series:
+        factor = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
+        factor = factor.where(factor > 0)
+        return factor.fillna(1.0).astype(np.float32)
+
+    def _to_qlib_frame(self, df: pd.DataFrame) -> pd.DataFrame:
+        qlib_df = df.copy()
+        has_adj_close = "adj_close" in qlib_df.columns and qlib_df["adj_close"].notna().any()
+        if has_adj_close:
+            factor = self._normalize_factor(qlib_df["adj_close"] / qlib_df["close"].replace(0, np.nan))
+        elif "factor" in qlib_df.columns:
+            factor = self._normalize_factor(qlib_df["factor"])
+        else:
+            factor = pd.Series(1.0, index=qlib_df.index, dtype="float32")
+
+        raw_vwap = (
+            qlib_df["vwap"]
+            if "vwap" in qlib_df.columns
+            else (qlib_df["high"] + qlib_df["low"] + qlib_df["close"]) / 3.0
+        )
+        for field in ("open", "high", "low"):
+            if field in qlib_df.columns:
+                qlib_df[field] = pd.to_numeric(qlib_df[field], errors="coerce") * factor
+        if has_adj_close:
+            qlib_df["close"] = pd.to_numeric(qlib_df["adj_close"], errors="coerce")
+        else:
+            qlib_df["close"] = pd.to_numeric(qlib_df["close"], errors="coerce") * factor
+        qlib_df["vwap"] = pd.to_numeric(raw_vwap, errors="coerce") * factor
+        if "value" in qlib_df.columns:
+            qlib_df["value"] = pd.to_numeric(qlib_df["value"], errors="coerce") * factor
+        else:
+            qlib_df["value"] = qlib_df["close"] * pd.to_numeric(qlib_df["volume"], errors="coerce").fillna(0)
+        qlib_df["change"] = qlib_df["close"].diff().fillna(0.0)
+        qlib_df["factor"] = factor
+        keep_cols = [self.symbol_field, self.date_field, *[field for field in self.numeric_fields if field in qlib_df.columns]]
+        return qlib_df[keep_cols]
 
     def _dump_calendar(self) -> None:
         cal_dir = self.output_dir / self.CAL_DIR
@@ -438,6 +490,26 @@ class QlibDumper:
             for row in sorted(self.instrument_rows):
                 fp.write(row + "\n")
 
+    def _dump_metadata(self) -> None:
+        meta_path = self.output_dir / "price_semantics.json"
+        payload = {
+            "schema": "qlib_tw_price_semantics/v1",
+            "price_basis": "adjusted",
+            "factor_semantics": "price_only",
+            "fields": {
+                "open": "adjusted",
+                "high": "adjusted",
+                "low": "adjusted",
+                "close": "adjusted",
+                "vwap": "adjusted",
+                "volume": "raw_shares",
+                "value": "adjusted_price_times_raw_volume",
+                "change": "adjusted_close_diff",
+                "factor": "adjusted_over_raw",
+            },
+        }
+        meta_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -451,13 +523,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> Tuple[argparse.ArgumentP
     collect_parser = subparsers.add_parser("collect", help="Fetch daily bars from Yahoo Finance")
     collect_parser.add_argument("--start", type=str, default=None, help="Start date (YYYY-MM-DD)")
     collect_parser.add_argument("--end", type=str, default=None, help="End date (YYYY-MM-DD)")
-    collect_parser.add_argument("--target-dir", type=Path, default=None, help="Destination directory")
-    collect_parser.add_argument(
-        "--tmp-dir",
-        type=Path,
-        default=None,
-        help="Intermediate CSV directory (default: <target_parent>/_raw_yahoo)",
-    )
+    collect_parser.add_argument("--target-dir", type=Path, default=None, help="Qlib provider output directory (default: Data/qlib_data)")
+    collect_parser.add_argument("--raw-dir", type=Path, default=None, help="Raw Yahoo CSV directory (default: Data/raw_data)")
     collect_parser.add_argument(
         "--symbols",
         type=str,
@@ -471,6 +538,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> Tuple[argparse.ArgumentP
         help="Default Yahoo suffix for numeric codes (default: .TW)",
     )
     collect_parser.add_argument("--pause", type=float, default=0.5, help="Sleep seconds between Yahoo requests")
+
+    dump_parser = subparsers.add_parser("dump", help="Build a Qlib provider from an existing raw Yahoo snapshot")
+    dump_parser.add_argument("--target-dir", type=Path, default=None, help="Qlib provider output directory (default: Data/qlib_data)")
+    dump_parser.add_argument("--raw-dir", type=Path, default=None, help="Raw Yahoo CSV directory (default: Data/raw_data)")
 
     openapi_parser = subparsers.add_parser("openapi", help="Fetch TWSE OpenAPI datasets")
     openapi_parser.add_argument("--target-dir", type=Path, required=True, help="Output directory for raw JSON/CSV")
@@ -516,7 +587,7 @@ def run_collect(
     start: str,
     end: str,
     target_dir: Path,
-    tmp_dir: Optional[Path] = None,
+    raw_dir: Optional[Path] = None,
     symbols: Optional[Sequence[str]] = None,
     suffix: str = ".TW",
     pause: float = 0.5,
@@ -528,7 +599,7 @@ def run_collect(
         return 1
 
     target_path = Path(target_dir).expanduser().resolve()
-    tmp_path = Path(tmp_dir).expanduser().resolve() if tmp_dir else target_path.parent.joinpath("_raw_yahoo")
+    tmp_path = Path(raw_dir).expanduser().resolve() if raw_dir else RAW_DATA_DIR.resolve()
     target_path.mkdir(parents=True, exist_ok=True)
     tmp_path.mkdir(parents=True, exist_ok=True)
 
@@ -582,11 +653,31 @@ def run_collect(
         skipped_log.unlink()
 
     if csv_files:
-        dumper = QlibDumper(source_files=csv_files, output_dir=target_path)
-        dumper.run()
-        LOG.info("Done. Data available at %s", target_path)
+        return run_dump(target_dir=target_path, raw_dir=tmp_path, source_files=csv_files)
     else:
         LOG.warning("No Qlib data generated because no valid CSV files were available.")
+    return 0
+
+
+def run_dump(
+    *,
+    target_dir: Path,
+    raw_dir: Optional[Path] = None,
+    source_files: Optional[Sequence[Path]] = None,
+) -> int:
+    target_path = Path(target_dir).expanduser().resolve()
+    raw_path = Path(raw_dir).expanduser().resolve() if raw_dir else RAW_DATA_DIR.resolve()
+    target_path.mkdir(parents=True, exist_ok=True)
+    raw_path.mkdir(parents=True, exist_ok=True)
+
+    csv_files = [Path(path).expanduser().resolve() for path in source_files] if source_files else sorted(raw_path.glob("*.csv"))
+    if not csv_files:
+        LOG.error("No raw Yahoo CSV files found under %s", raw_path)
+        return 1
+
+    dumper = QlibDumper(source_files=csv_files, output_dir=target_path)
+    dumper.run()
+    LOG.info("Done. Data available at %s", target_path)
     return 0
 
 
@@ -614,16 +705,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             config["end"] = args.end
         if args.target_dir:
             config["target_dir"] = args.target_dir
-        if args.tmp_dir:
-            config["tmp_dir"] = args.tmp_dir
+        if args.raw_dir:
+            config["raw_dir"] = args.raw_dir
         return run_collect(
             start=config["start"],
             end=config["end"],
             target_dir=config["target_dir"],
-            tmp_dir=config["tmp_dir"],
+            raw_dir=config.get("raw_dir"),
             symbols=args.symbols or config["symbols"],
             suffix=args.suffix,
             pause=args.pause,
+        )
+
+    if args.command == "dump":
+        return run_dump(
+            target_dir=args.target_dir or DEFAULT_COLLECT_CONFIG["target_dir"],
+            raw_dir=args.raw_dir,
         )
 
     if args.command == "openapi":

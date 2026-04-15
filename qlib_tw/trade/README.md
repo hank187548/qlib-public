@@ -6,7 +6,7 @@ It keeps outputs separate from the research backtest entrypoints.
 ## Design Goals
 
 - Reuse the existing model, strategy, and T+2 exchange logic.
-- Reuse the shared main provider at `Data/tw_data` so daily updates stay simple.
+- Reuse the shared main provider at `Data/qlib_data` so daily updates stay simple.
 - Keep daily simulation outputs outside the current backtest folders.
 - Avoid state drift by using full replay to the latest available trade date.
 - Make risks explicit when the backtest model cannot be mapped 1:1 to live orders.
@@ -56,12 +56,12 @@ Files:
 
 ## Shared Data Policy
 
-- Paper trading now refreshes and reuses the shared provider at `Data/tw_data`.
+- Paper trading now refreshes and reuses the shared provider at `Data/qlib_data`.
 - This keeps the daily workflow simple and aligned with the rest of the repo.
 - Outputs remain isolated under `outputs/paper_trading/<profile>/`.
 - A tiny calendar overlay may still be created under the paper output folder when the local provider ends on the latest available trade date.
   - This is only a runtime helper so Qlib can see the next session boundary.
-  - It does not duplicate the full provider and does not modify `Data/tw_data`.
+  - It does not duplicate the full provider and does not modify `Data/qlib_data`.
 
 ## Key Risks
 
@@ -95,7 +95,7 @@ Run the daily replay with:
   --target-date 2026-04-09
 ```
 
-Refresh is on by default. Pass `--no-refresh-data` if you want to replay without updating `Data/tw_data` first.
+Refresh is on by default. Pass `--no-refresh-data` if you want to replay without updating `Data/qlib_data` first.
 
 For unattended runs, use the shell wrapper:
 

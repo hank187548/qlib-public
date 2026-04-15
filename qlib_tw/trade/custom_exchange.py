@@ -28,7 +28,17 @@ class TWLimitExchange(Exchange):
     - Buy: no fill if day high < limit; fill at min(base_price, limit).
     - Sell: no fill if day low > limit; fill at max(base_price, limit).
     - No order book/partial fill/matching; daily conservative approximation only.
+
+    The provider used by this repo follows Qlib-style adjusted OHLCV semantics.
+    `adjust_prices_for_backtest` is kept only for config compatibility and becomes
+    a no-op once the exchange is initialized.
+
+    Important: the provider `$factor` in this repo is derived from Yahoo `adj_close / close`,
+    so it is treated as a price-only factor and must not be reused as a trading-share
+    or board-lot conversion factor.
     """
+
+    _ADJUSTABLE_PRICE_FIELDS = {"$open", "$high", "$low", "$close", "$vwap"}
 
     def __init__(
         self,
@@ -36,6 +46,7 @@ class TWLimitExchange(Exchange):
         limit_slippage: float = 0.01,
         odd_lot_min_cost: float = 1.0,
         board_lot_size: int = 1000,
+        adjust_prices_for_backtest: bool = False,
         **kwargs,
     ):
         # Ensure high/low prices are available
@@ -47,6 +58,106 @@ class TWLimitExchange(Exchange):
         self.limit_slippage = limit_slippage
         self.odd_lot_min_cost = float(odd_lot_min_cost)
         self.board_lot_size = int(board_lot_size)
+        self.adjust_prices_for_backtest = bool(adjust_prices_for_backtest)
+        self.provider_prices_already_adjusted = True
+        self.factor_is_price_only = True
+        if self.adjust_prices_for_backtest and self.provider_prices_already_adjusted:
+            self.logger.info(
+                "Provider core price fields are already adjusted; disable extra backtest price adjustment."
+            )
+            self.adjust_prices_for_backtest = False
+
+    @staticmethod
+    def _normalize_field(field: str) -> str:
+        return field if field.startswith("$") else f"${field}"
+
+    def _get_factor_value(
+        self,
+        stock_id: str,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp,
+        method: str | None = "ts_data_last",
+    ):
+        return self.quote.get_data(stock_id, start_time, end_time, field="$factor", method=method)
+
+    def _adjust_price_value(
+        self,
+        value,
+        stock_id: str,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp,
+        method: str | None = "ts_data_last",
+    ):
+        if value is None:
+            return value
+        factor = self._get_factor_value(stock_id, start_time, end_time, method=method)
+        if factor is None:
+            return value
+        try:
+            if np.isnan(factor) or factor <= 0:
+                return value
+        except TypeError:
+            pass
+        return value * factor
+
+    def get_factor(
+        self,
+        stock_id: str,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp,
+    ):
+        if self.factor_is_price_only:
+            return 1.0
+        if not self.adjust_prices_for_backtest:
+            return super().get_factor(stock_id, start_time, end_time)
+        # In adjusted-price backtests, keep share-count rounding on the raw-share basis.
+        # Yahoo's adj factor includes cash-dividend effects and should only adjust prices.
+        return 1.0
+
+    def get_quote_info(
+        self,
+        stock_id: str,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp,
+        field: str,
+        method: str = "ts_data_last",
+    ):
+        value = super().get_quote_info(stock_id, start_time, end_time, field=field, method=method)
+        normalized = self._normalize_field(field)
+        if not self.adjust_prices_for_backtest or normalized not in self._ADJUSTABLE_PRICE_FIELDS:
+            return value
+        return self._adjust_price_value(value, stock_id, start_time, end_time, method=method)
+
+    def get_close(
+        self,
+        stock_id: str,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp,
+        method: str = "ts_data_last",
+    ):
+        return self.get_quote_info(stock_id, start_time, end_time, field="$close", method=method)
+
+    def get_deal_price(
+        self,
+        stock_id: str,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp,
+        direction: OrderDir,
+        method: str | None = "ts_data_last",
+    ):
+        if direction == OrderDir.SELL:
+            pstr = self.sell_price
+        elif direction == OrderDir.BUY:
+            pstr = self.buy_price
+        else:
+            raise NotImplementedError(f"This type of input is not supported")
+
+        deal_price = self.get_quote_info(stock_id, start_time, end_time, field=pstr, method=method)
+        if method is not None and (deal_price is None or np.isnan(deal_price) or deal_price <= 1e-08):
+            self.logger.warning(f"(stock_id:{stock_id}, trade_time:{(start_time, end_time)}, {pstr}): {deal_price}!!!")
+            self.logger.warning("setting deal_price to close price")
+            deal_price = self.get_close(stock_id, start_time, end_time, method)
+        return deal_price
 
     def _raw_share_count(self, deal_amount: float, factor: float | None) -> int:
         if factor is None or np.isnan(factor) or factor <= 0:
@@ -104,9 +215,9 @@ class TWLimitExchange(Exchange):
     def _get_price_with_limit(
         self, stock_id: str, start_time: pd.Timestamp, end_time: pd.Timestamp, direction: OrderDir
     ) -> tuple[float | None, bool]:
-        base_price = super().get_deal_price(stock_id, start_time, end_time, direction=direction)
-        high = self.quote.get_data(stock_id, start_time, end_time, field="$high", method="ts_data_last")
-        low = self.quote.get_data(stock_id, start_time, end_time, field="$low", method="ts_data_last")
+        base_price = self.get_deal_price(stock_id, start_time, end_time, direction=direction)
+        high = self.get_quote_info(stock_id, start_time, end_time, field="$high", method="ts_data_last")
+        low = self.get_quote_info(stock_id, start_time, end_time, field="$low", method="ts_data_last")
         if base_price is None or np.isnan(base_price) or base_price <= 0:
             return None, False
         if direction == Order.BUY:
@@ -393,8 +504,9 @@ class TPlusLimitExchange(TWLimitExchange):
             order.amount = min(order.amount, avail)
 
         # Execute directly on the configured base deal price; no extra high/low touch filter.
-        trade_price = Exchange.get_deal_price(
-            self,
+        # Use TWLimitExchange.get_deal_price so adjusted-price backtests also trade on the
+        # adjusted price scale instead of mixing adjusted valuation with raw execution.
+        trade_price = self.get_deal_price(
             order.stock_id,
             order.start_time,
             order.end_time,

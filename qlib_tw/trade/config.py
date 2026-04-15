@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict
 
+from qlib_tw.data_layout import QLIB_DATA_DIR, RAW_DATA_DIR, resolve_provider_uri
 from qlib_tw.research.search_results import extract_model_kwargs, load_search_result_row
 from qlib_tw.research.settings import COMBO_CONFIGS, MODEL_CONFIGS, PROVIDER_URI, REGION, WORK_DIR
 
@@ -30,6 +31,7 @@ class PaperTradingProfile:
     rebalance: str = "day"
     deal_price: str = "close"
     limit_tplus: bool = True
+    adjust_prices_for_backtest: bool = False
     settlement_lag: int = 2
     risk_degree: float = 0.95
     account: float = 1_000_000.0
@@ -42,7 +44,7 @@ class PaperTradingProfile:
     backtest_start: str = "2025-07-01"
     data_start: str = "2018-01-01"
     data_refresh_start: str = "2018-01-01"
-    provider_uri: Path = field(default_factory=lambda: PROVIDER_URI.resolve())
+    provider_uri: Path = field(default_factory=lambda: QLIB_DATA_DIR.resolve())
     output_root: Path = field(default_factory=lambda: WORK_DIR / "outputs" / "paper_trading")
     search_results_csv: Path | None = None
     search_run_index: int | None = None
@@ -55,7 +57,7 @@ class PaperTradingProfile:
         if config_path is None or not config_path.exists():
             raise FileNotFoundError(f"Paper trading config not found: {path}")
         payload = json.loads(config_path.read_text())
-        provider_uri = _resolve_path(payload.get("provider_uri")) or PROVIDER_URI.resolve()
+        provider_uri = resolve_provider_uri(_resolve_path(payload.get("provider_uri")) or PROVIDER_URI.resolve())
         output_root = _resolve_path(payload.get("output_root")) or (WORK_DIR / "outputs" / "paper_trading")
         search_results_csv = _resolve_path(payload.get("search_results_csv"))
         profile = cls(
@@ -69,6 +71,7 @@ class PaperTradingProfile:
             rebalance=str(payload.get("rebalance", "day")),
             deal_price=str(payload.get("deal_price", "close")),
             limit_tplus=bool(payload.get("limit_tplus", True)),
+            adjust_prices_for_backtest=bool(payload.get("adjust_prices_for_backtest", False)),
             settlement_lag=int(payload.get("settlement_lag", 2)),
             risk_degree=float(payload.get("risk_degree", 0.95)),
             account=float(payload.get("account", 1_000_000.0)),
@@ -106,7 +109,7 @@ class PaperTradingProfile:
 
     @property
     def resolved_raw_dir(self) -> Path:
-        return (self.resolved_provider_uri.parent / "_raw_yahoo").resolve()
+        return RAW_DATA_DIR.resolve()
 
     @property
     def effective_deal_price(self) -> str:

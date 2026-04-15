@@ -302,7 +302,7 @@ def _refresh_provider_data(profile: PaperTradingProfile, target_date: pd.Timesta
         start=profile.data_refresh_start,
         end=target_date.strftime("%Y-%m-%d"),
         target_dir=profile.resolved_provider_uri,
-        tmp_dir=profile.resolved_raw_dir,
+        raw_dir=profile.resolved_raw_dir,
     )
 
 

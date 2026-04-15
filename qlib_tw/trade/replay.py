@@ -84,7 +84,7 @@ def refresh_provider_data(profile: PaperTradingProfile, target_date: pd.Timestam
         start=profile.data_refresh_start,
         end=target_date.strftime("%Y-%m-%d"),
         target_dir=profile.resolved_provider_uri,
-        tmp_dir=profile.resolved_raw_dir,
+        raw_dir=profile.resolved_raw_dir,
     )
 
 
@@ -147,6 +147,7 @@ def _dynamic_port_config(profile: PaperTradingProfile, task_cfg: dict, effective
         strategy_choice=profile.strategy,
         deal_price=profile.deal_price,
         limit_tplus=profile.limit_tplus,
+        adjust_prices_for_backtest=profile.adjust_prices_for_backtest,
     )
     port_config["strategy"]["kwargs"]["risk_degree"] = profile.risk_degree
     if profile.limit_tplus:

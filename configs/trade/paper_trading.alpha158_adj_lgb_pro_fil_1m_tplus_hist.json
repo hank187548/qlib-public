@@ -22,7 +22,7 @@
   "backtest_start": "2025-07-01",
   "data_start": "2018-01-01",
   "data_refresh_start": "2018-01-01",
-  "provider_uri": "Data/tw_data",
+  "provider_uri": "Data/qlib_data",
   "output_root": "outputs/paper_trading",
   "region": "tw"
 }
