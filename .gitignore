@@ -13,18 +13,10 @@ secrets/
 *.crt
 
 Data/
-mlruns/
 catboost_info/
 log/
 third_party/
 home/
-outputs/tw_workflow/
-outputs/live_orders/
-outputs/auto_search_*/
-outputs/auto_pipeline/
-outputs/paper_trading/
-outputs/execution_grid/
-outputs/ic_runs/
-orders_*.csv
+mlruns/
 **/@eaDir/
 **/Thumbs.db

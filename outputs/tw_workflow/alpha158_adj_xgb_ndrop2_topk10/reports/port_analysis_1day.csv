@@ -1,0 +1,11 @@
+level_0,level_1,risk
+excess_return_without_cost,mean,-0.0018452471815108486
+excess_return_without_cost,std,0.016164348793359824
+excess_return_without_cost,annualized_return,-0.43916882919958194
+excess_return_without_cost,information_ratio,-1.7611032401883946
+excess_return_without_cost,max_drawdown,-0.47200405524657096
+excess_return_with_cost,mean,-0.0024842221266423285
+excess_return_with_cost,std,0.016126822037116708
+excess_return_with_cost,annualized_return,-0.5912448661408741
+excess_return_with_cost,information_ratio,-2.3764578221397414
+excess_return_with_cost,max_drawdown,-0.5647814264597445

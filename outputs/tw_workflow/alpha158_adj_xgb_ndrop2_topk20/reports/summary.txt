@@ -1,0 +1,28 @@
+Universe size: 1082
+Data period: 2018-01-01 ~ 2026-04-14
+Train range: 2018-01-01 ~ 2024-12-31
+Validation range: 2025-01-01 ~ 2025-06-30
+Test range: 2025-07-01 ~ 2026-04-14
+Backtest period: 2025-07-01 ~ 2026-04-14
+Strategy cumulative return: 34.3661%
+Benchmark cumulative return: 59.1383%
+Trading days: 189
+risk.excess_return_without_cost.mean: -0.000838
+risk.excess_return_without_cost.std: 0.012728
+risk.excess_return_without_cost.annualized_return: -0.199433
+risk.excess_return_without_cost.information_ratio: -1.015696
+risk.excess_return_without_cost.max_drawdown: -0.266173
+risk.excess_return_with_cost.mean: -0.001168
+risk.excess_return_with_cost.std: 0.012709
+risk.excess_return_with_cost.annualized_return: -0.277952
+risk.excess_return_with_cost.information_ratio: -1.417682
+risk.excess_return_with_cost.max_drawdown: -0.300576
+indicator_summary.ffr: 1.000000
+indicator_summary.pa: 0.000000
+indicator_summary.pos: 0.000000
+indicator_daily_mean.ffr: 1.000000
+indicator_daily_mean.pa: 0.000000
+indicator_daily_mean.pos: 0.000000
+indicator_daily_mean.deal_amount: 610.437989
+indicator_daily_mean.value: 21946.991519
+indicator_daily_mean.count: 3.931579
