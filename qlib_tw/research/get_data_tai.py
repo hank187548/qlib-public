@@ -5,10 +5,13 @@ transform them into a Qlib provider dataset.
 
 Two workflows are supported:
 - `collect`: Use Yahoo Finance to fetch historical daily bars for Taiwan
-  tickers, store the raw download snapshot under `raw_data/`, then convert
+  tickers, store the raw download snapshot under `Raw_data/`, build
+  processed Qlib-ready CSV snapshots under `Process_data/`, then convert
   them into Qlib binary storage under `qlib_data/`.
-- `dump`: Rebuild `qlib_data/` directly from an existing `raw_data/`
+- `process`: Rebuild `Process_data/` directly from an existing `Raw_data/`
   snapshot without re-downloading Yahoo data.
+- `dump`: Rebuild `qlib_data/` directly from an existing `Process_data/`
+  snapshot.
 - `openapi`: Fetch the latest TWSE open-data datasets (e.g., BWIBBU_ALL) and
   store the JSON/CSV snapshots locally.
 
@@ -35,7 +38,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from qlib_tw.data_layout import QLIB_DATA_DIR, RAW_DATA_DIR
+from qlib_tw.data_layout import PROCESS_DATA_DIR, QLIB_DATA_DIR, RAW_DATA_DIR
 
 LOG = logging.getLogger("GetDataTai")
 
@@ -46,6 +49,7 @@ DEFAULT_COLLECT_CONFIG = {
     # Update these paths if you want to store the dataset elsewhere.
     "target_dir": QLIB_DATA_DIR,
     "raw_dir": RAW_DATA_DIR,
+    "process_dir": PROCESS_DATA_DIR,
     # Leave symbols=None to fetch the entire TWSE list automatically.
     "symbols": None,
     "suffix": ".TW",
@@ -195,48 +199,14 @@ class YahooTaiwanCollector:
             return pd.DataFrame()
         return df
 
-    def _transform(self, base_symbol: str, df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df
-        df = df.copy()
-        df["symbol"] = base_symbol.upper()
-        df["date"] = pd.to_datetime(df["date"])
-        df.sort_values("date", inplace=True)
-        df.dropna(subset=["close"], inplace=True)
-        df["value"] = df["close"] * df["volume"].fillna(0)
-        df["change"] = df["close"].diff().fillna(0)
-        df["transactions"] = np.nan
-        # Yahoo daily bars do not provide a true intraday VWAP. Use raw-price
-        # HLC3 here and convert it together with OHLC during qlib_data dump.
-        df["vwap"] = (df["high"] + df["low"] + df["close"]) / 3.0
-        if "adj_close" in df.columns:
-            adj_factor = df["adj_close"] / df["close"].replace(0, np.nan)
-            df["factor"] = adj_factor.fillna(1.0)
-        else:
-            df["adj_close"] = np.nan
-            df["factor"] = 1.0
-        columns = [
-            "symbol",
-            "date",
-            "open",
-            "high",
-            "low",
-            "close",
-            "adj_close",
-            "volume",
-            "value",
-            "change",
-            "transactions",
-            "vwap",
-            "factor",
-        ]
-        return df[columns]
-
-    def save_dataframe(self, base_symbol: str, df: pd.DataFrame) -> Optional[Path]:
+    def save_dataframe(self, base_symbol: str, yahoo_symbol: str, df: pd.DataFrame) -> Optional[Path]:
         if df.empty:
             return None
+        raw_df = df.copy()
+        raw_df.insert(0, "symbol", base_symbol.upper())
+        raw_df.insert(1, "source_symbol", yahoo_symbol.upper())
         csv_path = self.raw_dir / f"{code_to_fname(base_symbol).lower()}.csv"
-        df.to_csv(csv_path, index=False)
+        raw_df.to_csv(csv_path, index=False)
         return csv_path
 
     def run(self) -> List[Path]:
@@ -249,13 +219,145 @@ class YahooTaiwanCollector:
             if df.empty:
                 LOG.warning("No data returned for %s", base_symbol)
                 continue
-            tf = self._transform(base_symbol, df)
-            path = self.save_dataframe(base_symbol, tf)
+            path = self.save_dataframe(base_symbol, yahoo_symbol, df)
             if path:
                 saved.append(path)
             time.sleep(self.pause)
         LOG.info("Finished Yahoo download for %d symbols", len(saved))
         return saved
+
+
+def _normalize_factor(series: pd.Series) -> pd.Series:
+    factor = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    factor = factor.where(factor > 0)
+    return factor.fillna(1.0).astype(np.float32)
+
+
+def build_processed_dataframe(base_symbol: str, df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    processed = df.copy()
+    processed["symbol"] = base_symbol.upper()
+    if "source_symbol" not in processed.columns:
+        processed["source_symbol"] = base_symbol.upper()
+    processed["date"] = pd.to_datetime(processed["date"])
+    processed.sort_values("date", inplace=True)
+
+    def _series_for(primary: str, fallback: str | None = None, *, default=np.nan) -> pd.Series:
+        if primary in processed.columns:
+            return pd.to_numeric(processed[primary], errors="coerce")
+        if fallback is not None and fallback in processed.columns:
+            return pd.to_numeric(processed[fallback], errors="coerce")
+        return pd.Series(default, index=processed.index, dtype="float64")
+
+    raw_open = _series_for("raw_open", "open")
+    raw_high = _series_for("raw_high", "high")
+    raw_low = _series_for("raw_low", "low")
+    raw_close = _series_for("raw_close", "close")
+    raw_volume = _series_for("raw_volume", "volume", default=0.0).fillna(0.0)
+
+    raw_adj_close = _series_for("raw_adj_close", "adj_close")
+    if not raw_adj_close.isna().all():
+        factor = _normalize_factor(raw_adj_close / raw_close.replace(0, np.nan))
+    elif "factor" in processed.columns:
+        factor = _normalize_factor(processed["factor"])
+        raw_adj_close = raw_close * factor
+    else:
+        raise ValueError(
+            f"{base_symbol}: unable to build Process_data without adj_close or factor in the raw input"
+        )
+
+    raw_vwap = _series_for("raw_vwap", "vwap")
+    if raw_vwap.isna().all():
+        raw_vwap = (raw_high + raw_low + raw_close) / 3.0
+
+    processed["raw_open"] = raw_open
+    processed["raw_high"] = raw_high
+    processed["raw_low"] = raw_low
+    processed["raw_close"] = raw_close
+    processed["raw_adj_close"] = raw_adj_close
+    processed["raw_volume"] = raw_volume
+    processed["raw_value"] = raw_close * raw_volume
+    processed["raw_change"] = raw_close.pct_change(fill_method=None).fillna(0.0)
+    processed["raw_vwap"] = raw_vwap
+
+    processed["open"] = raw_open * factor
+    processed["high"] = raw_high * factor
+    processed["low"] = raw_low * factor
+    processed["close"] = raw_adj_close.where(raw_adj_close.notna(), raw_close * factor)
+    processed["volume"] = raw_volume
+    processed["value"] = processed["close"] * processed["volume"]
+    processed["change"] = processed["close"].pct_change(fill_method=None).fillna(0.0)
+    processed["transactions"] = np.nan
+    processed["vwap"] = raw_vwap * factor
+    processed["factor"] = factor
+
+    processed.dropna(subset=["close"], inplace=True)
+
+    columns = [
+        "symbol",
+        "source_symbol",
+        "date",
+        "raw_open",
+        "raw_high",
+        "raw_low",
+        "raw_close",
+        "raw_adj_close",
+        "raw_volume",
+        "raw_value",
+        "raw_change",
+        "raw_vwap",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "value",
+        "change",
+        "transactions",
+        "vwap",
+        "factor",
+    ]
+    return processed[columns]
+
+
+def build_process_data(
+    *,
+    raw_dir: Path,
+    process_dir: Path,
+    source_files: Optional[Sequence[Path]] = None,
+) -> List[Path]:
+    raw_path = Path(raw_dir).expanduser().resolve()
+    process_path = Path(process_dir).expanduser().resolve()
+    raw_path.mkdir(parents=True, exist_ok=True)
+    process_path.mkdir(parents=True, exist_ok=True)
+
+    csv_files = [Path(path).expanduser().resolve() for path in source_files] if source_files else sorted(raw_path.glob("*.csv"))
+    if not csv_files:
+        LOG.error("No raw CSV files found under %s", raw_path)
+        return []
+
+    saved: List[Path] = []
+    for csv_path in csv_files:
+        df = pd.read_csv(csv_path, parse_dates=["date"])
+        if df.empty:
+            LOG.warning("Skip empty raw snapshot: %s", csv_path)
+            continue
+        symbol = str(df["symbol"].iloc[0]).upper() if "symbol" in df.columns and not df["symbol"].empty else fname_to_code(csv_path.stem).upper()
+        try:
+            processed_df = build_processed_dataframe(symbol, df)
+        except ValueError as err:
+            LOG.error("Failed to normalize raw snapshot %s: %s", csv_path, err)
+            continue
+        if processed_df.empty:
+            LOG.warning("Processed snapshot is empty after normalization: %s", csv_path)
+            continue
+        out_path = process_path / f"{code_to_fname(symbol).lower()}.csv"
+        processed_df.to_csv(out_path, index=False)
+        saved.append(out_path)
+    LOG.info("Built %d processed CSV snapshots under %s", len(saved), process_path)
+    return saved
 
 
 # ---------------------------------------------------------------------------
@@ -368,25 +470,51 @@ class QlibDumper:
         ]
         self.calendar: List[pd.Timestamp] = []
         self.instrument_rows: List[str] = []
+        self.required_process_fields = {
+            self.symbol_field,
+            self.date_field,
+            "source_symbol",
+            "raw_open",
+            "raw_high",
+            "raw_low",
+            "raw_close",
+            "raw_adj_close",
+            "raw_volume",
+            "raw_value",
+            "raw_change",
+            "raw_vwap",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "value",
+            "change",
+            "transactions",
+            "vwap",
+            "factor",
+        }
 
-    def run(self) -> None:
+    def run(self) -> int:
         if not self.source_files:
             LOG.error("No source CSV files produced; aborting dump.")
-            return
+            return 0
         all_data = self._load_all_data()
         if not all_data:
             LOG.error("No parsed data rows; aborting dump.")
-            return
+            return 0
         self.calendar = sorted({row[self.date_field] for rows in all_data.values() for row in rows})
         if not self.calendar:
             LOG.error("Calendar is empty; aborting dump.")
-            return
+            return 0
         self._dump_calendar()
+        dumped_symbols = 0
         for symbol, rows in all_data.items():
-            self._dump_symbol(symbol, rows)
+            dumped_symbols += int(self._dump_symbol(symbol, rows))
         self._dump_instruments()
         self._dump_metadata()
         LOG.info("Dumped data into %s", self.output_dir)
+        return dumped_symbols
 
     def _load_all_data(self) -> Dict[str, List[Dict[str, float]]]:
         data: Dict[str, List[Dict[str, float]]] = {}
@@ -398,41 +526,18 @@ class QlibDumper:
             data[symbol] = self._to_qlib_frame(df).to_dict(orient="records")
         return data
 
-    @staticmethod
-    def _normalize_factor(series: pd.Series) -> pd.Series:
-        factor = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
-        factor = factor.where(factor > 0)
-        return factor.fillna(1.0).astype(np.float32)
-
     def _to_qlib_frame(self, df: pd.DataFrame) -> pd.DataFrame:
         qlib_df = df.copy()
-        has_adj_close = "adj_close" in qlib_df.columns and qlib_df["adj_close"].notna().any()
-        if has_adj_close:
-            factor = self._normalize_factor(qlib_df["adj_close"] / qlib_df["close"].replace(0, np.nan))
-        elif "factor" in qlib_df.columns:
-            factor = self._normalize_factor(qlib_df["factor"])
-        else:
-            factor = pd.Series(1.0, index=qlib_df.index, dtype="float32")
+        qlib_df[self.date_field] = pd.to_datetime(qlib_df[self.date_field])
+        missing_fields = sorted(self.required_process_fields - set(qlib_df.columns))
+        if missing_fields:
+            raise ValueError(
+                "Process_data schema mismatch; dump only accepts standard Process_data CSVs. "
+                f"Missing fields: {missing_fields}"
+            )
 
-        raw_vwap = (
-            qlib_df["vwap"]
-            if "vwap" in qlib_df.columns
-            else (qlib_df["high"] + qlib_df["low"] + qlib_df["close"]) / 3.0
-        )
-        for field in ("open", "high", "low"):
-            if field in qlib_df.columns:
-                qlib_df[field] = pd.to_numeric(qlib_df[field], errors="coerce") * factor
-        if has_adj_close:
-            qlib_df["close"] = pd.to_numeric(qlib_df["adj_close"], errors="coerce")
-        else:
-            qlib_df["close"] = pd.to_numeric(qlib_df["close"], errors="coerce") * factor
-        qlib_df["vwap"] = pd.to_numeric(raw_vwap, errors="coerce") * factor
-        if "value" in qlib_df.columns:
-            qlib_df["value"] = pd.to_numeric(qlib_df["value"], errors="coerce") * factor
-        else:
-            qlib_df["value"] = qlib_df["close"] * pd.to_numeric(qlib_df["volume"], errors="coerce").fillna(0)
-        qlib_df["change"] = qlib_df["close"].diff().fillna(0.0)
-        qlib_df["factor"] = factor
+        for field in self.required_process_fields - {self.symbol_field, self.date_field, "source_symbol"}:
+            qlib_df[field] = pd.to_numeric(qlib_df[field], errors="coerce")
         keep_cols = [self.symbol_field, self.date_field, *[field for field in self.numeric_fields if field in qlib_df.columns]]
         return qlib_df[keep_cols]
 
@@ -444,18 +549,18 @@ class QlibDumper:
             for dt in self.calendar:
                 fp.write(pd.Timestamp(dt).strftime("%Y-%m-%d") + "\n")
 
-    def _dump_symbol(self, symbol: str, rows: List[Dict[str, float]]) -> None:
+    def _dump_symbol(self, symbol: str, rows: List[Dict[str, float]]) -> bool:
         df = pd.DataFrame(rows)
         df[self.date_field] = pd.to_datetime(df[self.date_field])
         df.set_index(self.date_field, inplace=True)
         aligned, sub_calendar = self._align_to_calendar(df)
         if not sub_calendar or aligned.empty:
             LOG.warning("Symbol %s has no calendar overlap; skipped.", symbol)
-            return
+            return False
         valid_dates = aligned.dropna(subset=["close"]).index
         if valid_dates.empty:
             LOG.warning("Symbol %s has no price records; skipped.", symbol)
-            return
+            return False
         start = valid_dates.min().strftime("%Y-%m-%d")
         end = valid_dates.max().strftime("%Y-%m-%d")
         self.instrument_rows.append(f"{symbol}\t{start}\t{end}")
@@ -472,6 +577,7 @@ class QlibDumper:
             payload = np.concatenate([np.array([start_index], dtype=np.float32), values])
             bin_path = feature_dir / f"{field.lower()}.day.bin"
             payload.astype(np.float32).tofile(bin_path)
+        return True
 
     def _align_to_calendar(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, List[pd.Timestamp]]:
         start = df.index.min()
@@ -504,7 +610,7 @@ class QlibDumper:
                 "vwap": "adjusted",
                 "volume": "raw_shares",
                 "value": "adjusted_price_times_raw_volume",
-                "change": "adjusted_close_diff",
+                "change": "adjusted_close_pct_change",
                 "factor": "adjusted_over_raw",
             },
         }
@@ -524,7 +630,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> Tuple[argparse.ArgumentP
     collect_parser.add_argument("--start", type=str, default=None, help="Start date (YYYY-MM-DD)")
     collect_parser.add_argument("--end", type=str, default=None, help="End date (YYYY-MM-DD)")
     collect_parser.add_argument("--target-dir", type=Path, default=None, help="Qlib provider output directory (default: Data/qlib_data)")
-    collect_parser.add_argument("--raw-dir", type=Path, default=None, help="Raw Yahoo CSV directory (default: Data/raw_data)")
+    collect_parser.add_argument("--raw-dir", type=Path, default=None, help="Raw download snapshot directory (default: Data/Raw_data)")
+    collect_parser.add_argument("--process-dir", type=Path, default=None, help="Processed Qlib-ready CSV directory (default: Data/Process_data)")
     collect_parser.add_argument(
         "--symbols",
         type=str,
@@ -539,9 +646,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> Tuple[argparse.ArgumentP
     )
     collect_parser.add_argument("--pause", type=float, default=0.5, help="Sleep seconds between Yahoo requests")
 
-    dump_parser = subparsers.add_parser("dump", help="Build a Qlib provider from an existing raw Yahoo snapshot")
+    process_parser = subparsers.add_parser("process", help="Build Process_data from an existing raw snapshot")
+    process_parser.add_argument("--raw-dir", type=Path, default=None, help="Raw download snapshot directory (default: Data/Raw_data)")
+    process_parser.add_argument("--process-dir", type=Path, default=None, help="Processed Qlib-ready CSV directory (default: Data/Process_data)")
+
+    dump_parser = subparsers.add_parser("dump", help="Build a Qlib provider from an existing processed snapshot")
     dump_parser.add_argument("--target-dir", type=Path, default=None, help="Qlib provider output directory (default: Data/qlib_data)")
-    dump_parser.add_argument("--raw-dir", type=Path, default=None, help="Raw Yahoo CSV directory (default: Data/raw_data)")
+    dump_parser.add_argument("--process-dir", type=Path, default=None, help="Processed Qlib-ready CSV directory (default: Data/Process_data)")
 
     openapi_parser = subparsers.add_parser("openapi", help="Fetch TWSE OpenAPI datasets")
     openapi_parser.add_argument("--target-dir", type=Path, required=True, help="Output directory for raw JSON/CSV")
@@ -588,6 +699,7 @@ def run_collect(
     end: str,
     target_dir: Path,
     raw_dir: Optional[Path] = None,
+    process_dir: Optional[Path] = None,
     symbols: Optional[Sequence[str]] = None,
     suffix: str = ".TW",
     pause: float = 0.5,
@@ -600,8 +712,10 @@ def run_collect(
 
     target_path = Path(target_dir).expanduser().resolve()
     tmp_path = Path(raw_dir).expanduser().resolve() if raw_dir else RAW_DATA_DIR.resolve()
+    process_path = Path(process_dir).expanduser().resolve() if process_dir else PROCESS_DATA_DIR.resolve()
     target_path.mkdir(parents=True, exist_ok=True)
     tmp_path.mkdir(parents=True, exist_ok=True)
+    process_path.mkdir(parents=True, exist_ok=True)
 
     requested_symbols = _normalize_symbols(symbols)
     if requested_symbols:
@@ -629,14 +743,7 @@ def run_collect(
         pause=pause,
         default_suffix=suffix,
     )
-    csv_files = collector.run()
-    saved_set = {p.resolve() for p in csv_files}
-    for csv_path in tmp_path.glob("*.csv"):
-        if csv_path.resolve() not in saved_set and csv_path.is_file():
-            try:
-                csv_path.unlink()
-            except FileNotFoundError:
-                pass
+    raw_files = collector.run()
 
     skipped_log = target_path.joinpath("yahoo_skipped.log")
     if collector.failed_symbols:
@@ -652,31 +759,57 @@ def run_collect(
     elif skipped_log.exists():
         skipped_log.unlink()
 
-    if csv_files:
-        return run_dump(target_dir=target_path, raw_dir=tmp_path, source_files=csv_files)
-    else:
-        LOG.warning("No Qlib data generated because no valid CSV files were available.")
+    if not raw_files:
+        LOG.error("No raw data generated because no valid Yahoo CSV files were available.")
+        return 1
+
+    processed_files = build_process_data(raw_dir=tmp_path, process_dir=process_path, source_files=raw_files)
+    if not processed_files:
+        LOG.error("No processed data generated from the downloaded raw snapshots.")
+        return 1
+
+    return run_dump(target_dir=target_path, process_dir=process_path)
+
+
+def run_process(
+    *,
+    raw_dir: Optional[Path] = None,
+    process_dir: Optional[Path] = None,
+    source_files: Optional[Sequence[Path]] = None,
+) -> int:
+    raw_path = Path(raw_dir).expanduser().resolve() if raw_dir else RAW_DATA_DIR.resolve()
+    process_path = Path(process_dir).expanduser().resolve() if process_dir else PROCESS_DATA_DIR.resolve()
+    processed_files = build_process_data(raw_dir=raw_path, process_dir=process_path, source_files=source_files)
+    if not processed_files:
+        return 1
     return 0
 
 
 def run_dump(
     *,
     target_dir: Path,
-    raw_dir: Optional[Path] = None,
+    process_dir: Optional[Path] = None,
     source_files: Optional[Sequence[Path]] = None,
 ) -> int:
     target_path = Path(target_dir).expanduser().resolve()
-    raw_path = Path(raw_dir).expanduser().resolve() if raw_dir else RAW_DATA_DIR.resolve()
+    process_path = Path(process_dir).expanduser().resolve() if process_dir else PROCESS_DATA_DIR.resolve()
     target_path.mkdir(parents=True, exist_ok=True)
-    raw_path.mkdir(parents=True, exist_ok=True)
+    process_path.mkdir(parents=True, exist_ok=True)
 
-    csv_files = [Path(path).expanduser().resolve() for path in source_files] if source_files else sorted(raw_path.glob("*.csv"))
+    csv_files = [Path(path).expanduser().resolve() for path in source_files] if source_files else sorted(process_path.glob("*.csv"))
     if not csv_files:
-        LOG.error("No raw Yahoo CSV files found under %s", raw_path)
+        LOG.error("No processed CSV files found under %s", process_path)
         return 1
 
     dumper = QlibDumper(source_files=csv_files, output_dir=target_path)
-    dumper.run()
+    try:
+        dumped_symbols = dumper.run()
+    except ValueError as err:
+        LOG.error("Failed to dump qlib_data: %s", err)
+        return 1
+    if dumped_symbols <= 0:
+        LOG.error("Qlib dump produced no valid symbols")
+        return 1
     LOG.info("Done. Data available at %s", target_path)
     return 0
 
@@ -707,20 +840,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             config["target_dir"] = args.target_dir
         if args.raw_dir:
             config["raw_dir"] = args.raw_dir
+        if args.process_dir:
+            config["process_dir"] = args.process_dir
         return run_collect(
             start=config["start"],
             end=config["end"],
             target_dir=config["target_dir"],
             raw_dir=config.get("raw_dir"),
+            process_dir=config.get("process_dir"),
             symbols=args.symbols or config["symbols"],
             suffix=args.suffix,
             pause=args.pause,
         )
 
+    if args.command == "process":
+        return run_process(
+            raw_dir=args.raw_dir,
+            process_dir=args.process_dir,
+        )
+
     if args.command == "dump":
         return run_dump(
             target_dir=args.target_dir or DEFAULT_COLLECT_CONFIG["target_dir"],
-            raw_dir=args.raw_dir,
+            process_dir=args.process_dir,
         )
 
     if args.command == "openapi":

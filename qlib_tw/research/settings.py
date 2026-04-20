@@ -186,10 +186,7 @@ BASE_PORT_ANALYSIS_CONFIG: Dict[str, object] = {
         "benchmark": BENCHMARK,
         "exchange_kwargs": {
             "freq": "day",
-            "limit_threshold": (
-                "$change >= 0.095 * Ref($close, 1)",
-                "$change <= -0.095 * Ref($close, 1)",
-            ),
+            "limit_threshold": 0.095,
             "deal_price": "close",
             "open_cost": 0.00092625,
             "close_cost": 0.00242625,

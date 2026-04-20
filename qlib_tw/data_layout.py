@@ -8,7 +8,8 @@ from typing import Any, Dict
 WORK_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = WORK_DIR / "Data"
 
-RAW_DATA_DIR = DATA_DIR / "raw_data"
+RAW_DATA_DIR = DATA_DIR / "Raw_data"
+PROCESS_DATA_DIR = DATA_DIR / "Process_data"
 QLIB_DATA_DIR = DATA_DIR / "qlib_data"
 
 PRICE_SEMANTICS_FILE = "price_semantics.json"
@@ -37,6 +38,13 @@ def resolve_raw_data_dir(path: str | Path | None = None) -> Path:
     if resolved is not None:
         return resolved
     return RAW_DATA_DIR.resolve()
+
+
+def resolve_process_data_dir(path: str | Path | None = None) -> Path:
+    resolved = _resolve_local_path(path)
+    if resolved is not None:
+        return resolved
+    return PROCESS_DATA_DIR.resolve()
 
 
 def active_provider_uri_from_qlib() -> Path | None:
