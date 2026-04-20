@@ -20,3 +20,4 @@ home/
 mlruns/
 **/@eaDir/
 **/Thumbs.db
+outputs/
