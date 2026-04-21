@@ -43,7 +43,9 @@ def build_exp_manager_config(uri_root: str | Path | None = None, default_exp_nam
         "class": "MLflowExpManager",
         "module_path": "qlib.workflow.expm",
         "kwargs": {
-            "uri": base_dir.as_uri(),
+            # Qlib's MLflowExpManager incorrectly derives a relative lock path from file:// URIs on Linux.
+            # A plain absolute path keeps MLflow on the same local FileStore without creating ./home/... junk.
+            "uri": str(base_dir),
             "default_exp_name": default_exp_name,
         },
     }
