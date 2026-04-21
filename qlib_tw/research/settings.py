@@ -14,7 +14,7 @@ DEFAULT_COMBO = "alpha158_lgb"
 
 BASE_DATA_HANDLER_CONFIG: Dict[str, object] = {
     "start_time": "2018-01-01",
-    "end_time": "2026-04-10",
+    "end_time": "2026-04-17",
     "fit_start_time": "2018-01-01",
     "fit_end_time": "2024-12-31",
     "price_basis": "provider",
@@ -23,7 +23,7 @@ BASE_DATA_HANDLER_CONFIG: Dict[str, object] = {
 SEGMENTS: Dict[str, tuple[str, str]] = {
     "train": ("2018-01-01", "2024-12-31"),
     "valid": ("2025-01-01", "2025-06-30"),
-    "test": ("2025-07-01", "2026-04-09"),
+    "test": ("2025-07-01", "2026-04-17"),
 }
 
 MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
