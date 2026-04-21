@@ -1,8 +1,8 @@
 {
-  "name": "alpha158_adj_xgb_1m_tplus_hist",
-  "combo": "alpha158_adj_xgb",
-  "train_experiment": "tw_train_model_alpha158_adj_xgb",
-  "train_recorder_id": "cdef58b7f25646518f90603bd916b5ee",
+  "name": "alpha158_lgb_pro_fil_1m_tplus_hist",
+  "combo": "alpha158_lgb_pro_fil",
+  "train_experiment": "tw_train_model_alpha158_lgb_pro_fil",
+  "train_recorder_id": "fe804cabd92a45f285520fa5ca382665",
   "strategy": "bucket",
   "topk": 8,
   "n_drop": 2,

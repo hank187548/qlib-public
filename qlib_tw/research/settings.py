@@ -8,7 +8,6 @@ from qlib_tw.data_layout import QLIB_DATA_DIR
 
 WORK_DIR = Path(__file__).resolve().parents[2]
 PROVIDER_URI = QLIB_DATA_DIR.resolve()
-PROVIDER_CORE_ADJUSTED = True
 REGION = "tw"
 BENCHMARK = "^TWII"
 DEFAULT_COMBO = "alpha158_lgb"
@@ -18,6 +17,7 @@ BASE_DATA_HANDLER_CONFIG: Dict[str, object] = {
     "end_time": "2026-04-10",
     "fit_start_time": "2018-01-01",
     "fit_end_time": "2024-12-31",
+    "price_basis": "provider",
 }
 
 SEGMENTS: Dict[str, tuple[str, str]] = {
@@ -94,8 +94,6 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
 HANDLER_CONFIGS: Dict[str, Dict[str, str]] = {
     "alpha158": {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
     "alpha360": {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"},
-    "alpha158_adj": {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
-    "alpha360_adj": {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"},
 }
 
 ALPHA158_INFER_PIPELINE = [
@@ -118,45 +116,22 @@ COMBO_CONFIGS = {
         "max_instruments": None,
         "infer_processors": ALPHA158_INFER_PIPELINE,
     },
-    "alpha158_adj_lgb": {"handler": "alpha158_adj", "model": "lgb", "max_instruments": None, "infer_processors": []},
-    "alpha158_adj_lgb_run11": {
-        "handler": "alpha158_adj",
-        "model": "lgb_run11",
-        "max_instruments": None,
-        "infer_processors": [],
-    },
-    "alpha158_adj_lgb_pro_fil": {
-        "handler": "alpha158_adj",
-        "model": "lgb",
-        "max_instruments": None,
-        "infer_processors": ALPHA158_INFER_PIPELINE,
-    },
     "alpha360_lgb": {"handler": "alpha360", "model": "lgb", "max_instruments": None, "infer_processors": []},
-    "alpha360_adj_lgb": {"handler": "alpha360_adj", "model": "lgb", "max_instruments": None, "infer_processors": []},
     "alpha158_xgb": {
         "handler": "alpha158",
         "model": "xgb",
         "max_instruments": None,
         "infer_processors": ALPHA158_INFER_PIPELINE,
     },
-    "alpha158_adj_xgb": {
-        "handler": "alpha158_adj",
-        "model": "xgb",
-        "max_instruments": None,
-        "infer_processors": ALPHA158_INFER_PIPELINE,
-    },
     "alpha360_xgb": {"handler": "alpha360", "model": "xgb", "max_instruments": None, "infer_processors": []},
-    "alpha360_adj_xgb": {"handler": "alpha360_adj", "model": "xgb", "max_instruments": None, "infer_processors": []},
     "alpha158_cat": {"handler": "alpha158", "model": "cat", "max_instruments": None, "infer_processors": []},
-    "alpha158_adj_cat": {"handler": "alpha158_adj", "model": "cat", "max_instruments": None, "infer_processors": []},
-    "alpha158_adj_cat_pro_fil": {
-        "handler": "alpha158_adj",
+    "alpha158_cat_pro_fil": {
+        "handler": "alpha158",
         "model": "cat",
         "max_instruments": None,
         "infer_processors": ALPHA158_INFER_PIPELINE,
     },
     "alpha360_cat": {"handler": "alpha360", "model": "cat", "max_instruments": None, "infer_processors": []},
-    "alpha360_adj_cat": {"handler": "alpha360_adj", "model": "cat", "max_instruments": None, "infer_processors": []},
 }
 
 BASE_PORT_ANALYSIS_CONFIG: Dict[str, object] = {

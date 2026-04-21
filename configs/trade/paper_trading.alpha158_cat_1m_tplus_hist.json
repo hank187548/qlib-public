@@ -1,7 +1,7 @@
 {
-  "name": "alpha158_adj_cat_1m_tplus_hist",
-  "combo": "alpha158_adj_cat",
-  "train_experiment": "tw_train_model_alpha158_adj_cat",
+  "name": "alpha158_cat_1m_tplus_hist",
+  "combo": "alpha158_cat",
+  "train_experiment": "tw_train_model_alpha158_cat",
   "train_recorder_id": "e1de870062cd4480b8244320a5b6456c",
   "strategy": "bucket",
   "topk": 8,

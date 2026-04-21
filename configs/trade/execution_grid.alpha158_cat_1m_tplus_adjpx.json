@@ -1,6 +1,6 @@
 {
-  "name": "alpha158_adj_cat_1m_tplus_adjpx_20260413",
-  "paper_profile": "configs/trade/paper_trading.alpha158_adj_cat_1m_tplus_hist.json",
+  "name": "alpha158_cat_1m_tplus_adjpx_20260413",
+  "paper_profile": "configs/trade/paper_trading.alpha158_cat_1m_tplus_hist.json",
   "target_date": "2026-04-13",
   "output_root": "outputs/execution_grid",
   "ranking_metric": "risk.excess_return_with_cost.annualized_return",
