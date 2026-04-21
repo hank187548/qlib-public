@@ -13,7 +13,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from qlib_tw.research.runner import init_qlib, run_combo
+from qlib_tw.research.runner import backtest_combo, init_qlib, train_combo
 from qlib_tw.research.search_results import extract_model_kwargs, load_search_result_row
 from qlib_tw.research.settings import COMBO_CONFIGS, MODEL_CONFIGS, combo_choices, resolve_combos
 
@@ -83,7 +83,15 @@ def main() -> None:
             allowed_keys = MODEL_CONFIGS[spec["model"]]["kwargs"].keys()
             model_kwargs_override = extract_model_kwargs(search_row, allowed_keys)
             runtime_combo_name = runtime_name_override
-        run_combo(
+        model_rid = train_combo(
+            runtime_combo_name,
+            spec["handler"],
+            spec["model"],
+            spec.get("max_instruments"),
+            spec.get("infer_processors"),
+            model_kwargs_override=model_kwargs_override,
+        )
+        backtest_combo(
             runtime_combo_name,
             spec["handler"],
             spec["model"],
@@ -96,6 +104,7 @@ def main() -> None:
             deal_price=args.deal_price,
             simulate_limit=args.simulate_limit,
             limit_slippage=args.limit_slippage,
+            recorder_override=model_rid,
             model_kwargs_override=model_kwargs_override,
         )
 

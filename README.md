@@ -93,24 +93,7 @@ pip install pyqlib lightgbm xgboost catboost pandas numpy matplotlib plotly
 
 ## Workflow Commands
 
-### 1) Train models only
-
-```bash
-python3 scripts/research/train_tw.py --combo alpha158_lgb_run11
-```
-
-### 2) Backtest using trained models
-
-```bash
-python3 scripts/research/backtest_tw.py \
-  --combo alpha158_lgb_run11 \
-  --n-drop 1 \
-  --topk 10 \
-  --strategy bucket \
-  --deal-price close
-```
-
-### 3) End-to-end run (train + backtest + export)
+### 1) End-to-end run (train + backtest + export)
 
 ```bash
 python3 scripts/research/workflow_by_code_tw.py \
@@ -120,7 +103,7 @@ python3 scripts/research/workflow_by_code_tw.py \
   --strategy bucket
 ```
 
-### 4) End-to-end run directly from search results
+### 2) End-to-end run directly from search results
 
 ```bash
 python3 scripts/research/workflow_by_code_tw.py \
@@ -133,7 +116,7 @@ python3 scripts/research/workflow_by_code_tw.py \
   --run-name alpha158_lgb_searchrun11
 ```
 
-### 5) Promote one local workflow run into the tracked public snapshot
+### 3) Promote one local workflow run into the tracked public snapshot
 
 `outputs/tw_workflow/` is for local experiment outputs and is git-ignored.
 `outputs/best_run/` is the tracked public snapshot used by this repo.
@@ -144,7 +127,7 @@ python3 scripts/research/promote_best_run.py --combo alpha158_lgb_run11_scanbest
 
 This copies `reports/` and `figures/` into `outputs/best_run/` and translates known `summary.txt` labels to English by default.
 
-### 6) Random search helper
+### 4) Random search helper
 
 ```bash
 python3 scripts/research/auto_train_ic_search.py --combo alpha158_lgb --trials 20 --segment valid

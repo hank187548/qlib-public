@@ -151,6 +151,8 @@ def backtest_combo(
     rebalance: str = "day",
     strategy_choice: str = "bucket",
     deal_price: str = "close",
+    simulate_limit: bool = False,
+    limit_slippage: float = 0.01,
     limit_tplus: bool = False,
     recorder_override: str | None = None,
     model_kwargs_override: Dict[str, object] | None = None,
@@ -166,6 +168,8 @@ def backtest_combo(
         rebalance=rebalance,
         strategy_choice=strategy_choice,
         deal_price=deal_price,
+        simulate_limit=simulate_limit,
+        limit_slippage=limit_slippage,
         limit_tplus=limit_tplus,
         adjust_prices_for_backtest=adjust_prices_for_backtest,
     )
@@ -209,6 +213,8 @@ def backtest_combo(
         rebalance=rebalance,
         strategy_choice=strategy_choice,
         deal_price=deal_price,
+        simulate_limit=simulate_limit,
+        limit_slippage=limit_slippage,
         limit_tplus=limit_tplus,
         adjust_prices_for_backtest=adjust_prices_for_backtest,
     )
@@ -233,123 +239,6 @@ def backtest_combo(
     backtest_exp = f"tw_backtest_{combo_name}"
     LOGGER.info("Start backtest - experiment %s", backtest_exp)
     with R.start(experiment_name=backtest_exp):
-        current_recorder = R.get_recorder()
-        signal_rec = SignalRecord(trained_model, dataset, current_recorder)
-        signal_rec.generate()
-
-        strategy_kwargs = port_config["strategy"]["kwargs"]
-        strategy_kwargs["model"] = trained_model
-        strategy_kwargs["dataset"] = dataset
-
-        port_rec = PortAnaRecord(current_recorder, port_config, "day")
-        port_rec.generate()
-        backtest_rid = current_recorder.id
-
-    LOGGER.info("Backtest complete, recorder id = %s", backtest_rid)
-    recorder = R.get_recorder(recorder_id=backtest_rid, experiment_name=backtest_exp)
-    handler_kwargs = task_config["dataset"]["kwargs"]["handler"]["kwargs"]
-    segments = task_config["dataset"]["kwargs"]["segments"]
-    dump_report_frames(
-        recorder,
-        dataset,
-        universe=handler_kwargs["instruments"],
-        data_handler_config=handler_kwargs,
-        segments=segments,
-        port_config=port_config,
-        paths=paths,
-    )
-    LOGGER.info("Combo %s completed. Output root: %s", effective_name, paths.output_root)
-
-
-def run_combo(
-    combo_name: str,
-    handler_key: str,
-    model_key: str,
-    max_instruments: int | None,
-    infer_processors: List[Dict[str, object]] | None = None,
-    *,
-    n_drop_override: int | None = None,
-    topk_override: int | None = None,
-    rebalance: str = "day",
-    strategy_choice: str = "bucket",
-    deal_price: str = "close",
-    simulate_limit: bool = False,
-    limit_slippage: float = 0.01,
-    model_kwargs_override: Dict[str, object] | None = None,
-) -> None:
-    available = len(UNIVERSE)
-    if max_instruments is None:
-        LOGGER.info(
-            "=== Running combo: %s (handler=%s, model=%s, instruments=%d) ===",
-            combo_name,
-            handler_key,
-            model_key,
-            available,
-        )
-    else:
-        LOGGER.info(
-            "=== Running combo: %s (handler=%s, model=%s, instruments=%d/%d) ===",
-            combo_name,
-            handler_key,
-            model_key,
-            min(available, max_instruments),
-            available,
-        )
-
-    effective_name = build_effective_name(
-        combo_name,
-        n_drop_override=n_drop_override,
-        topk_override=topk_override,
-        rebalance=rebalance,
-        strategy_choice=strategy_choice,
-        deal_price=deal_price,
-        simulate_limit=simulate_limit,
-        limit_slippage=limit_slippage,
-    )
-    paths = set_output_dirs(effective_name)
-
-    task_config = build_task_config(
-        handler_key,
-        model_key,
-        UNIVERSE,
-        max_instruments,
-        infer_processors,
-        model_kwargs_override=model_kwargs_override,
-    )
-    port_config = build_port_analysis_config()
-    apply_strategy_overrides(
-        port_config,
-        task_config,
-        n_drop_override=n_drop_override,
-        topk_override=topk_override,
-        rebalance=rebalance,
-        strategy_choice=strategy_choice,
-        deal_price=deal_price,
-        simulate_limit=simulate_limit,
-        limit_slippage=limit_slippage,
-    )
-
-    LOGGER.info("Build model and dataset configuration")
-    if model_kwargs_override:
-        LOGGER.info("Apply model kwargs override: %s", model_kwargs_override)
-    model = init_instance_by_config(task_config["model"])
-    dataset = init_instance_by_config(task_config["dataset"])
-
-    train_exp = f"tw_train_model_{combo_name}"
-    LOGGER.info("Start model training - experiment %s", train_exp)
-    with R.start(experiment_name=train_exp):
-        R.log_params(**flatten_dict(task_config))
-        model.fit(dataset)
-        R.save_objects(trained_model=model)
-        model_rid = R.get_recorder().id
-    LOGGER.info("Model training complete, recorder id = %s", model_rid)
-
-    backtest_exp = f"tw_backtest_{combo_name}"
-    LOGGER.info("Start signal generation and backtest - experiment %s", backtest_exp)
-    with R.start(experiment_name=backtest_exp):
-        train_recorder = R.get_recorder(recorder_id=model_rid, experiment_name=train_exp)
-        trained_model = train_recorder.load_object("trained_model")
-
         current_recorder = R.get_recorder()
         signal_rec = SignalRecord(trained_model, dataset, current_recorder)
         signal_rec.generate()
