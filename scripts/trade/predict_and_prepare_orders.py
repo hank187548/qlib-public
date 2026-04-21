@@ -32,6 +32,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from qlib_tw.data_layout import build_exp_manager_config  # noqa: E402
 from qlib_tw.research.builders import build_task_config  # noqa: E402
 from qlib_tw.research.settings import COMBO_CONFIGS, PROVIDER_URI, UNIVERSE, WORK_DIR  # noqa: E402
 from masterlink_sdk import (
@@ -278,7 +279,7 @@ def place_orders(orders: List[Dict[str, object]], args: argparse.Namespace) -> N
 def main() -> None:
     args = parse_args()
 
-    qlib.init(provider_uri=str(PROVIDER_URI), region="tw")
+    qlib.init(provider_uri=str(PROVIDER_URI), region="tw", exp_manager=build_exp_manager_config())
 
     combo = COMBO_CONFIGS[args.combo]
     experiment = f"tw_train_model_{args.combo}"

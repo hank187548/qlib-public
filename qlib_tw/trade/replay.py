@@ -10,6 +10,7 @@ from qlib.utils import init_instance_by_config
 from qlib.workflow import R
 from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
+from qlib_tw.data_layout import build_exp_manager_config
 from qlib_tw.research.builders import apply_strategy_overrides, build_port_analysis_config, build_task_config
 from qlib_tw.research.get_data_tai import run_collect
 from qlib_tw.trade.config import PaperTradingProfile
@@ -90,7 +91,7 @@ def refresh_provider_data(profile: PaperTradingProfile, target_date: pd.Timestam
 
 def init_qlib(provider_uri: Path, region: str) -> None:
     LOGGER.info("Initialize Qlib for paper trading, provider uri: %s", provider_uri)
-    qlib.init(provider_uri=str(provider_uri), region=region)
+    qlib.init(provider_uri=str(provider_uri), region=region, exp_manager=build_exp_manager_config())
 
 
 def _dynamic_task_config(profile: PaperTradingProfile, provider_uri: Path, effective_end: pd.Timestamp) -> dict:

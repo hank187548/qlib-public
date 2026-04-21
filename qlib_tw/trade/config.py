@@ -5,18 +5,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict
 
-from qlib_tw.data_layout import QLIB_DATA_DIR, RAW_DATA_DIR, resolve_provider_uri
+from qlib_tw.data_layout import QLIB_DATA_DIR, RAW_DATA_DIR, resolve_provider_uri, resolve_workspace_path
 from qlib_tw.research.search_results import extract_model_kwargs, load_search_result_row
 from qlib_tw.research.settings import COMBO_CONFIGS, MODEL_CONFIGS, PROVIDER_URI, REGION, WORK_DIR
 
 
 def _resolve_path(value: str | Path | None) -> Path | None:
-    if value is None:
-        return None
-    path = Path(value)
-    if not path.is_absolute():
-        path = WORK_DIR / path
-    return path.resolve()
+    return resolve_workspace_path(value)
 
 
 @dataclass(frozen=True)

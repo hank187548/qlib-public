@@ -31,6 +31,7 @@ if str(ROOT_DIR) not in sys.path:
 import qlib
 from qlib.utils import init_instance_by_config
 
+from qlib_tw.data_layout import build_exp_manager_config
 from qlib_tw.research.builders import build_task_config
 from qlib_tw.research.ic import calc_daily_ic
 from qlib_tw.research.settings import COMBO_CONFIGS, PROVIDER_URI, UNIVERSE
@@ -186,7 +187,7 @@ def main() -> None:
     rng = random.Random(args.seed)
 
     print(f"Initialize Qlib: {PROVIDER_URI}")
-    qlib.init(provider_uri=str(PROVIDER_URI), region="tw")
+    qlib.init(provider_uri=str(PROVIDER_URI), region="tw", exp_manager=build_exp_manager_config())
 
     for combo_name in args.combo:
         out_dir = args.output_root / f"auto_search_{combo_name}"

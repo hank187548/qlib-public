@@ -15,6 +15,7 @@ from qlib.utils import init_instance_by_config
 from qlib.workflow import R
 from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
+from qlib_tw.data_layout import build_exp_manager_config, resolve_workspace_path
 from qlib_tw.research.get_data_tai import run_collect
 from qlib_tw.research.settings import WORK_DIR
 from qlib_tw.trade.config import PaperTradingProfile
@@ -25,12 +26,7 @@ LOGGER = logging.getLogger("qlib_tw.trade.execution_search")
 
 
 def _resolve_path(value: str | Path | None) -> Path | None:
-    if value is None:
-        return None
-    path = Path(value)
-    if not path.is_absolute():
-        path = WORK_DIR / path
-    return path.resolve()
+    return resolve_workspace_path(value)
 
 
 def _save_json(data: Any, path: Path) -> None:
@@ -308,7 +304,7 @@ def _refresh_provider_data(profile: PaperTradingProfile, target_date: pd.Timesta
 
 def _init_qlib(provider_uri: Path, region: str) -> None:
     LOGGER.info("Initialize Qlib for execution grid, provider uri: %s", provider_uri)
-    qlib.init(provider_uri=str(provider_uri), region=region)
+    qlib.init(provider_uri=str(provider_uri), region=region, exp_manager=build_exp_manager_config())
 
 
 def run_execution_grid(config: ExecutionGridConfig) -> Dict[str, Any]:

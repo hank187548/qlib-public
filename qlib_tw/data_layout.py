@@ -17,13 +17,36 @@ PRICE_BASIS_ADJUSTED = "adjusted"
 FACTOR_SEMANTICS_PRICE_ONLY = "price_only"
 
 
+def _normalize_pathlike(value: str | Path) -> Path:
+    if isinstance(value, Path):
+        return value
+    text = str(value).strip()
+    if "\\" in text:
+        text = text.replace("\\", "/")
+    if text.startswith("home/"):
+        text = "/" + text
+    return Path(text)
+
+
 def _resolve_local_path(path: str | Path | None) -> Path | None:
     if path is None:
         return None
-    resolved = Path(path)
+    resolved = _normalize_pathlike(path)
     if not resolved.is_absolute():
         resolved = WORK_DIR / resolved
     return resolved.expanduser().resolve()
+
+
+def build_exp_manager_config(uri_root: str | Path | None = None, default_exp_name: str = "Experiment") -> Dict[str, Any]:
+    base_dir = _resolve_local_path(uri_root) if uri_root is not None else (WORK_DIR / "mlruns").resolve()
+    return {
+        "class": "MLflowExpManager",
+        "module_path": "qlib.workflow.expm",
+        "kwargs": {
+            "uri": base_dir.as_uri(),
+            "default_exp_name": default_exp_name,
+        },
+    }
 
 
 def resolve_provider_uri(path: str | Path | None = None) -> Path:
@@ -31,6 +54,10 @@ def resolve_provider_uri(path: str | Path | None = None) -> Path:
     if resolved is not None:
         return resolved
     return QLIB_DATA_DIR.resolve()
+
+
+def resolve_workspace_path(path: str | Path | None = None) -> Path | None:
+    return _resolve_local_path(path)
 
 
 def resolve_raw_data_dir(path: str | Path | None = None) -> Path:

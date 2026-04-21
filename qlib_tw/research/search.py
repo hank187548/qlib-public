@@ -19,6 +19,7 @@ from qlib.utils import flatten_dict, init_instance_by_config
 from qlib.workflow import R
 from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
+from qlib_tw.data_layout import build_exp_manager_config
 from qlib_tw.research.builders import apply_strategy_overrides, build_port_analysis_config, build_task_config
 from qlib_tw.research.ic import calc_daily_ic
 from qlib_tw.research.paths import set_output_dirs
@@ -460,7 +461,7 @@ def main(argv: List[str] | None = None) -> int:
     save_json(settings, output_dir / "resolved_config.json")
 
     LOGGER.info("Initialize Qlib, provider uri: %s", PROVIDER_URI)
-    qlib.init(provider_uri=str(PROVIDER_URI), region=REGION)
+    qlib.init(provider_uri=str(PROVIDER_URI), region=REGION, exp_manager=build_exp_manager_config())
     LOGGER.info("Universe size: %d symbols", len(UNIVERSE))
 
     rng = random.Random(settings["seed"])

@@ -11,6 +11,7 @@ from qlib.utils import flatten_dict, init_instance_by_config
 from qlib.workflow import R
 from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
+from qlib_tw.data_layout import build_exp_manager_config
 from qlib_tw.research.builders import apply_strategy_overrides, build_port_analysis_config, build_task_config
 from qlib_tw.research.paths import build_effective_name, set_output_dirs
 from qlib_tw.research.reports import dump_report_frames
@@ -23,7 +24,7 @@ LOGGER = logging.getLogger("qlib_tw.research.runner")
 def init_qlib(provider_uri: Path | None = None) -> None:
     active_provider_uri = provider_uri.resolve() if provider_uri is not None else PROVIDER_URI.resolve()
     LOGGER.info("Initialize Qlib, provider uri: %s", active_provider_uri)
-    qlib.init(provider_uri=str(active_provider_uri), region=REGION)
+    qlib.init(provider_uri=str(active_provider_uri), region=REGION, exp_manager=build_exp_manager_config())
     LOGGER.info("Universe size: %d symbols", len(UNIVERSE))
 
 
