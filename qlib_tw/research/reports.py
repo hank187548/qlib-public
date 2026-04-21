@@ -131,6 +131,106 @@ def _load_raw_label(recorder, model_dataset) -> pd.DataFrame | None:
     return raw_label
 
 
+def _calc_ic(group: pd.DataFrame) -> float:
+    if group["score"].nunique() <= 1 or group["label"].nunique() <= 1:
+        return float("nan")
+    return group["score"].corr(group["label"], method="spearman")
+
+
+def _export_prediction_outputs(recorder, model_dataset, paths: WorkflowPaths) -> tuple[pd.DataFrame | None, pd.Series | None, list]:
+    pred_df = recorder.load_object("pred.pkl")
+    label_df = _load_raw_label(recorder, model_dataset)
+    if label_df is None:
+        LOGGER.warning("Prediction/label report generation skipped because raw label is missing")
+        return None, None, []
+    label_df.columns = ["label"]
+    combined = pred_df.join(label_df, how="left").dropna()
+    pred_label_path = paths.report_dir / "pred_label.csv"
+    combined.reset_index().to_csv(pred_label_path, index=False)
+    LOGGER.info("Prediction/raw-label data exported to %s", pred_label_path)
+
+    ic_series = combined.groupby(level=0).apply(_calc_ic)
+    ic_series.to_csv(paths.report_dir / "daily_ic.csv", header=["ic"])
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(ic_series.index, ic_series.values, marker="o", linestyle="-")
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_title("Daily Information Coefficient")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Spearman IC")
+    ax.grid(True, alpha=0.3)
+    fig.autofmt_xdate()
+    save_figure(fig, paths.fig_dir / "daily_ic.png")
+
+    plotly_sections = []
+    try:
+        plotly_sections.append(("score_ic", analysis_position.score_ic_graph(combined, show_notebook=False)))
+    except Exception as err:
+        LOGGER.error("Failed to generate score_ic: %s", err)
+    try:
+        plotly_sections.append(("model_performance", analysis_model.model_performance_graph(combined, show_notebook=False)))
+    except Exception as err:
+        LOGGER.error("Failed to generate model_performance: %s", err)
+    return combined, ic_series, plotly_sections
+
+
+def _prediction_summary_lines(combined: pd.DataFrame | None, ic_series: pd.Series | None) -> list[str]:
+    if combined is None or ic_series is None:
+        return []
+
+    mean_ic = float(ic_series.mean()) if not ic_series.empty else float("nan")
+    std_ic = float(ic_series.std()) if not ic_series.empty else float("nan")
+    icir = mean_ic / std_ic if pd.notna(mean_ic) and pd.notna(std_ic) and std_ic != 0 else float("nan")
+    positive_days = int((ic_series > 0).sum()) if not ic_series.empty else 0
+    total_days = int(ic_series.notna().sum()) if not ic_series.empty else 0
+
+    return [
+        f"Prediction rows: {len(combined)}",
+        f"Prediction days: {combined.index.get_level_values(0).nunique()}",
+        f"Mean daily IC: {mean_ic:.6f}" if pd.notna(mean_ic) else "Mean daily IC: nan",
+        f"IC std: {std_ic:.6f}" if pd.notna(std_ic) else "IC std: nan",
+        f"ICIR: {icir:.6f}" if pd.notna(icir) else "ICIR: nan",
+        f"Positive IC days: {positive_days}/{total_days}",
+    ]
+
+
+def _save_summary(paths: WorkflowPaths, lines: list[str]) -> None:
+    summary_path = paths.report_dir / "summary.txt"
+    summary_path.write_text("\n".join(lines))
+    LOGGER.info("Summary stats exported to %s", summary_path)
+
+
+def _save_plotly_sections(paths: WorkflowPaths, plotly_sections: list) -> None:
+    plotly_saved = []
+    for name, section in plotly_sections:
+        saved_entries = export_plotly_section(paths, name, section)
+        if saved_entries:
+            plotly_saved.append((name, saved_entries))
+    export_plotly_dashboard(paths, plotly_saved)
+
+
+def dump_model_frames(
+    recorder,
+    model_dataset,
+    *,
+    universe: List[str],
+    data_handler_config: Dict[str, object],
+    segments: Dict[str, tuple[str, str]],
+    paths: WorkflowPaths,
+) -> None:
+    combined, ic_series, plotly_sections = _export_prediction_outputs(recorder, model_dataset, paths)
+    summary_lines = [
+        f"Universe size: {len(universe)}",
+        f"Data period: {data_handler_config['start_time']} ~ {data_handler_config['end_time']}",
+        f"Train range: {segments['train'][0]} ~ {segments['train'][1]}",
+        f"Validation range: {segments['valid'][0]} ~ {segments['valid'][1]}",
+        f"Test range: {segments['test'][0]} ~ {segments['test'][1]}",
+    ]
+    summary_lines.extend(_prediction_summary_lines(combined, ic_series))
+    _save_summary(paths, summary_lines)
+    _save_plotly_sections(paths, plotly_sections)
+    LOGGER.info("Model analysis export complete")
+
+
 def dump_report_frames(
     recorder,
     model_dataset,
@@ -144,7 +244,6 @@ def dump_report_frames(
     report_df = recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
     analysis_df = recorder.load_object("portfolio_analysis/port_analysis_1day.pkl")
     positions_dict = recorder.load_object("portfolio_analysis/positions_normal_1day.pkl")
-    pred_df = recorder.load_object("pred.pkl")
     try:
         indicator_summary_df = recorder.load_object("portfolio_analysis/indicator_analysis_1day.pkl")
     except (FileNotFoundError, KeyError):
@@ -215,10 +314,6 @@ def dump_report_frames(
             for col, val in stats.items():
                 if pd.notna(val):
                     summary_lines.append(f"indicator_daily_mean.{col}: {val:.6f}")
-    summary_path = paths.report_dir / "summary.txt"
-    summary_path.write_text("\n".join(summary_lines))
-    LOGGER.info("Summary stats exported to %s", summary_path)
-
     turnover_records = []
     prev_weights = None
     for dt in sorted(positions_dict.keys()):
@@ -267,35 +362,10 @@ def dump_report_frames(
         ax.set_ylabel("Turnover")
         fig.autofmt_xdate()
         save_figure(fig, paths.fig_dir / "turnover.png")
+    combined, ic_series, plotly_sections = _export_prediction_outputs(recorder, model_dataset, paths)
+    summary_lines.extend(_prediction_summary_lines(combined, ic_series))
+    _save_summary(paths, summary_lines)
 
-    label_df = _load_raw_label(recorder, model_dataset)
-    if label_df is None:
-        LOGGER.warning("Prediction/label report generation skipped because raw label is missing")
-        return
-    label_df.columns = ["label"]
-    combined = pred_df.join(label_df, how="left").dropna()
-    pred_label_path = paths.report_dir / "pred_label.csv"
-    combined.reset_index().to_csv(pred_label_path, index=False)
-    LOGGER.info("Prediction/raw-label data exported to %s", pred_label_path)
-
-    def _calc_ic(group: pd.DataFrame) -> float:
-        if group["score"].nunique() <= 1 or group["label"].nunique() <= 1:
-            return float("nan")
-        return group["score"].corr(group["label"], method="spearman")
-
-    ic_series = combined.groupby(level=0).apply(_calc_ic)
-    ic_series.to_csv(paths.report_dir / "daily_ic.csv", header=["ic"])
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(ic_series.index, ic_series.values, marker="o", linestyle="-")
-    ax.axhline(0, color="black", linewidth=0.8)
-    ax.set_title("Daily Information Coefficient")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Spearman IC")
-    ax.grid(True, alpha=0.3)
-    fig.autofmt_xdate()
-    save_figure(fig, paths.fig_dir / "daily_ic.png")
-
-    plotly_sections = []
     try:
         plotly_sections.append(("report_graph", analysis_position.report_graph(report_df, show_notebook=False)))
     except Exception as err:
@@ -304,19 +374,5 @@ def dump_report_frames(
         plotly_sections.append(("risk_analysis", analysis_position.risk_analysis_graph(analysis_df, report_df, show_notebook=False)))
     except Exception as err:
         LOGGER.error("Failed to generate risk_analysis: %s", err)
-    try:
-        plotly_sections.append(("score_ic", analysis_position.score_ic_graph(combined, show_notebook=False)))
-    except Exception as err:
-        LOGGER.error("Failed to generate score_ic: %s", err)
-    try:
-        plotly_sections.append(("model_performance", analysis_model.model_performance_graph(combined, show_notebook=False)))
-    except Exception as err:
-        LOGGER.error("Failed to generate model_performance: %s", err)
-
-    plotly_saved = []
-    for name, section in plotly_sections:
-        saved_entries = export_plotly_section(paths, name, section)
-        if saved_entries:
-            plotly_saved.append((name, saved_entries))
-    export_plotly_dashboard(paths, plotly_saved)
+    _save_plotly_sections(paths, plotly_sections)
     LOGGER.info("Report and chart generation complete")

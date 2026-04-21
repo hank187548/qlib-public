@@ -13,13 +13,27 @@ class WorkflowPaths:
     fig_dir: Path
 
 
-def set_output_dirs(combo_name: str) -> WorkflowPaths:
-    root = WORK_DIR / "outputs" / "tw_workflow" / combo_name
+def _make_output_dirs(root: Path) -> WorkflowPaths:
     report_dir = root / "reports"
     fig_dir = root / "figures"
     for directory in (root, report_dir, fig_dir):
         directory.mkdir(parents=True, exist_ok=True)
     return WorkflowPaths(output_root=root, report_dir=report_dir, fig_dir=fig_dir)
+
+
+def set_output_dirs(combo_name: str) -> WorkflowPaths:
+    root = WORK_DIR / "outputs" / "backtest" / combo_name
+    return _make_output_dirs(root)
+
+
+def set_model_output_dirs(run_name: str) -> WorkflowPaths:
+    root = WORK_DIR / "outputs" / "models" / run_name
+    return _make_output_dirs(root)
+
+
+def set_backtest_output_dirs(run_name: str) -> WorkflowPaths:
+    root = WORK_DIR / "outputs" / "backtest" / run_name
+    return _make_output_dirs(root)
 
 
 def build_effective_name(

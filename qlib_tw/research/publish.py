@@ -6,7 +6,7 @@ from pathlib import Path
 from qlib_tw.research.settings import WORK_DIR
 
 
-SOURCE_ROOT = WORK_DIR / "outputs" / "tw_workflow"
+SOURCE_ROOT = WORK_DIR / "outputs" / "backtest"
 DEST_ROOT = WORK_DIR / "outputs" / "best_run"
 SKIP_NAMES = {"Thumbs.db"}
 SKIP_PARTS = {"@eaDir"}

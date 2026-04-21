@@ -13,8 +13,8 @@ from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
 from qlib_tw.data_layout import build_exp_manager_config
 from qlib_tw.research.builders import apply_strategy_overrides, build_port_analysis_config, build_task_config
-from qlib_tw.research.paths import build_effective_name, set_output_dirs
-from qlib_tw.research.reports import dump_report_frames
+from qlib_tw.research.paths import build_effective_name, set_backtest_output_dirs, set_model_output_dirs
+from qlib_tw.research.reports import dump_model_frames, dump_report_frames
 from qlib_tw.research.settings import PROVIDER_URI, REGION, UNIVERSE
 
 
@@ -110,6 +110,7 @@ def train_combo(
     threads: int | None = None,
     model_kwargs_override: Dict[str, object] | None = None,
 ) -> str:
+    paths = set_model_output_dirs(combo_name)
     task_config = build_task_config(
         handler_key,
         model_key,
@@ -134,7 +135,20 @@ def train_combo(
         R.log_params(**flatten_dict(task_config))
         model.fit(dataset)
         R.save_objects(trained_model=model)
+        signal_rec = SignalRecord(model, dataset, R.get_recorder())
+        signal_rec.generate()
         model_rid = R.get_recorder().id
+    recorder = R.get_recorder(recorder_id=model_rid, experiment_name=train_exp)
+    handler_kwargs = task_config["dataset"]["kwargs"]["handler"]["kwargs"]
+    segments = task_config["dataset"]["kwargs"]["segments"]
+    dump_model_frames(
+        recorder,
+        dataset,
+        universe=handler_kwargs["instruments"],
+        data_handler_config=handler_kwargs,
+        segments=segments,
+        paths=paths,
+    )
     LOGGER.info("Model training complete, recorder id = %s", model_rid)
     return model_rid
 
@@ -173,7 +187,7 @@ def backtest_combo(
         limit_tplus=limit_tplus,
         adjust_prices_for_backtest=adjust_prices_for_backtest,
     )
-    paths = set_output_dirs(effective_name)
+    paths = set_backtest_output_dirs(effective_name)
     base_provider_uri = PROVIDER_URI.resolve()
 
     task_config = build_task_config(

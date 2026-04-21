@@ -40,7 +40,7 @@ If you want to change command-line behavior, go to `scripts/`.
 
 Reference files:
 - [outputs/auto_pipeline/run11_strategy_grid_20260410/grid_results_ranked.csv](outputs/auto_pipeline/run11_strategy_grid_20260410/grid_results_ranked.csv)
-- [outputs/tw_workflow/alpha158_lgb_run11_scanbest_bucket_topk10_ndrop1/reports/summary.txt](outputs/tw_workflow/alpha158_lgb_run11_scanbest_bucket_topk10_ndrop1/reports/summary.txt)
+- `outputs/backtest/<run-name>/reports/summary.txt`
 
 ## Published Snapshot
 
@@ -93,20 +93,31 @@ pip install pyqlib lightgbm xgboost catboost pandas numpy matplotlib plotly
 
 ## Workflow Commands
 
-### 1) End-to-end run (train + backtest + export)
+### 1) Train model only
+
+Model-side outputs are written to `outputs/models/<run-name>/`.
 
 ```bash
-python3 scripts/research/workflow_by_code_tw.py \
+python3 scripts/research/workflow_by_code_tw.py train \
+  --combo alpha158_lgb_run11
+```
+
+### 2) Backtest one trained model
+
+Backtest-side outputs are written to `outputs/backtest/<run-name>/`.
+
+```bash
+python3 scripts/research/workflow_by_code_tw.py backtest \
   --combo alpha158_lgb_run11 \
   --n-drop 1 \
   --topk 10 \
   --strategy bucket
 ```
 
-### 2) End-to-end run directly from search results
+### 3) End-to-end run directly from search results
 
 ```bash
-python3 scripts/research/workflow_by_code_tw.py \
+python3 scripts/research/workflow_by_code_tw.py full \
   --combo alpha158_lgb \
   --from-search outputs/auto_search_alpha158_lgb/results.csv \
   --run-index 11 \
@@ -116,9 +127,10 @@ python3 scripts/research/workflow_by_code_tw.py \
   --run-name alpha158_lgb_searchrun11
 ```
 
-### 3) Promote one local workflow run into the tracked public snapshot
+### 4) Promote one local backtest run into the tracked public snapshot
 
-`outputs/tw_workflow/` is for local experiment outputs and is git-ignored.
+`outputs/models/` stores train-only diagnostics and is git-ignored.
+`outputs/backtest/` stores local backtest outputs and is git-ignored.
 `outputs/best_run/` is the tracked public snapshot used by this repo.
 
 ```bash
@@ -127,7 +139,7 @@ python3 scripts/research/promote_best_run.py --combo alpha158_lgb_run11_scanbest
 
 This copies `reports/` and `figures/` into `outputs/best_run/` and translates known `summary.txt` labels to English by default.
 
-### 4) Random search helper
+### 5) Random search helper
 
 ```bash
 python3 scripts/research/auto_train_ic_search.py --combo alpha158_lgb --trials 20 --segment valid
@@ -230,7 +242,8 @@ python3 scripts/trade/execution_grid_search.py \
 - `configs/trade/` - trade/paper-trading configs
 - `scripts/research/` - research CLI entrypoints
 - `scripts/trade/` - trade CLI entrypoints
-- `outputs/tw_workflow/` - local experiment outputs, intentionally ignored
+- `outputs/models/` - train-only diagnostics, intentionally ignored
+- `outputs/backtest/` - local backtest outputs, intentionally ignored
 - `outputs/best_run/` - exported best-run reports and dashboards
 - `Data/`, `mlruns/`, `catboost_info/`, `third_party/`, `secrets/`, `log/` - local workspace assets, intentionally ignored
 
