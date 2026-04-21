@@ -20,7 +20,7 @@ from qlib_tw.research.settings import COMBO_CONFIGS, combo_choices, resolve_comb
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train models (no backtest)")
     parser.add_argument("--combo", choices=combo_choices(), nargs="+", help="Combos to train (default alpha158_lgb). Use all to run all combos.")
-    parser.add_argument("--threads", type=int, default=4, help="Limit training threads (catboost/lgb)")
+    parser.add_argument("--threads", type=int, default=4, help="Limit training threads (lightgbm/catboost/xgboost)")
     return parser.parse_args()
 
 
