@@ -116,14 +116,14 @@ COMBO_CONFIGS = {
         "max_instruments": None,
         "infer_processors": ALPHA158_INFER_PIPELINE,
     },
-    "alpha360_lgb": {"handler": "alpha360", "model": "lgb", "max_instruments": None, "infer_processors": []},
+    "alpha360_lgb": {"handler": "alpha360", "model": "lgb", "max_instruments": None, "infer_processors": None},
     "alpha158_xgb": {
         "handler": "alpha158",
         "model": "xgb",
         "max_instruments": None,
         "infer_processors": ALPHA158_INFER_PIPELINE,
     },
-    "alpha360_xgb": {"handler": "alpha360", "model": "xgb", "max_instruments": None, "infer_processors": []},
+    "alpha360_xgb": {"handler": "alpha360", "model": "xgb", "max_instruments": None, "infer_processors": None},
     "alpha158_cat": {"handler": "alpha158", "model": "cat", "max_instruments": None, "infer_processors": []},
     "alpha158_cat_pro_fil": {
         "handler": "alpha158",
@@ -131,7 +131,7 @@ COMBO_CONFIGS = {
         "max_instruments": None,
         "infer_processors": ALPHA158_INFER_PIPELINE,
     },
-    "alpha360_cat": {"handler": "alpha360", "model": "cat", "max_instruments": None, "infer_processors": []},
+    "alpha360_cat": {"handler": "alpha360", "model": "cat", "max_instruments": None, "infer_processors": None},
 }
 
 BASE_PORT_ANALYSIS_CONFIG: Dict[str, object] = {
