@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-Custom exchange implementations for Taiwan equities.
+Custom exchange implementation for Taiwan equities.
 
-The primary exchange path is `TWExchange`, which keeps the backtest model simple:
+The research path uses a single `TWExchange` model:
 - execute on the configured base deal price (`open`/`close`)
 - apply Taiwan-specific fee logic, including board-lot vs odd-lot minimum fees
 - apply T+N settlement timing on both cash and shares
 
-The provider used by this repo already follows adjusted-price semantics for the
-core OHLCV fields, so exchange-side price adjustment is kept as a compatibility
-no-op.
+The provider used by this repo already stores adjusted prices in the core OHLCV
+fields, so exchange-side price adjustment is intentionally disabled.
 """
 
 from __future__ import annotations
@@ -27,11 +26,9 @@ class TWExchange(Exchange):
     """
     Taiwan exchange model with:
     - TW fee model (board lot / odd lot minimum fees)
-    - adjusted-price provider compatibility
+    - adjusted-price provider passthrough
     - T+N settlement for shares and cash
     """
-
-    _ADJUSTABLE_PRICE_FIELDS = {"$open", "$high", "$low", "$close", "$vwap"}
 
     def __init__(
         self,
@@ -42,51 +39,26 @@ class TWExchange(Exchange):
         adjust_prices_for_backtest: bool = False,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        if adjust_prices_for_backtest:
+            kwargs = dict(kwargs)
+            self._ignored_adjust_prices_flag = True
+        else:
+            self._ignored_adjust_prices_flag = False
+
+        super().__init__(
+            *args,
+            adjust_prices_for_backtest=False,
+            price_basis="provider",
+            factor_semantics="price_only",
+            **kwargs,
+        )
         self.settlement_lag = int(settlement_lag)
         self.odd_lot_min_cost = float(odd_lot_min_cost)
         self.board_lot_size = int(board_lot_size)
-        self.adjust_prices_for_backtest = bool(adjust_prices_for_backtest)
-        self.provider_prices_already_adjusted = True
-        self.factor_is_price_only = True
-        if self.adjust_prices_for_backtest and self.provider_prices_already_adjusted:
+        if self._ignored_adjust_prices_flag:
             self.logger.info(
-                "Provider core price fields are already adjusted; disable extra backtest price adjustment."
+                "Provider core price fields are already adjusted; ignore adjust_prices_for_backtest."
             )
-            self.adjust_prices_for_backtest = False
-
-    @staticmethod
-    def _normalize_field(field: str) -> str:
-        return field if field.startswith("$") else f"${field}"
-
-    def _get_factor_value(
-        self,
-        stock_id: str,
-        start_time: pd.Timestamp,
-        end_time: pd.Timestamp,
-        method: str | None = "ts_data_last",
-    ):
-        return self.quote.get_data(stock_id, start_time, end_time, field="$factor", method=method)
-
-    def _adjust_price_value(
-        self,
-        value,
-        stock_id: str,
-        start_time: pd.Timestamp,
-        end_time: pd.Timestamp,
-        method: str | None = "ts_data_last",
-    ):
-        if value is None:
-            return value
-        factor = self._get_factor_value(stock_id, start_time, end_time, method=method)
-        if factor is None:
-            return value
-        try:
-            if np.isnan(factor) or factor <= 0:
-                return value
-        except TypeError:
-            pass
-        return value * factor
 
     def get_factor(
         self,
@@ -94,61 +66,11 @@ class TWExchange(Exchange):
         start_time: pd.Timestamp,
         end_time: pd.Timestamp,
     ):
-        if self.factor_is_price_only:
-            return 1.0
-        if not self.adjust_prices_for_backtest:
-            return super().get_factor(stock_id, start_time, end_time)
+        if stock_id not in self.quote.get_all_stock():
+            return None
+        # In this repo, $factor comes from adj_close / close and is price-only.
+        # Returning 1.0 keeps share rounding on the raw-share basis.
         return 1.0
-
-    def get_quote_info(
-        self,
-        stock_id: str,
-        start_time: pd.Timestamp,
-        end_time: pd.Timestamp,
-        field: str,
-        method: str = "ts_data_last",
-    ):
-        value = super().get_quote_info(stock_id, start_time, end_time, field=field, method=method)
-        normalized = self._normalize_field(field)
-        if not self.adjust_prices_for_backtest or normalized not in self._ADJUSTABLE_PRICE_FIELDS:
-            return value
-        return self._adjust_price_value(value, stock_id, start_time, end_time, method=method)
-
-    def get_close(
-        self,
-        stock_id: str,
-        start_time: pd.Timestamp,
-        end_time: pd.Timestamp,
-        method: str = "ts_data_last",
-    ):
-        return self.get_quote_info(stock_id, start_time, end_time, field="$close", method=method)
-
-    def get_deal_price(
-        self,
-        stock_id: str,
-        start_time: pd.Timestamp,
-        end_time: pd.Timestamp,
-        direction: OrderDir,
-        method: str | None = "ts_data_last",
-    ):
-        if direction == OrderDir.SELL:
-            price_field = self.sell_price
-        elif direction == OrderDir.BUY:
-            price_field = self.buy_price
-        else:
-            raise NotImplementedError("Unsupported direction for deal price lookup")
-
-        deal_price = self.get_quote_info(stock_id, start_time, end_time, field=price_field, method=method)
-        if method is not None and (deal_price is None or np.isnan(deal_price) or deal_price <= 1e-08):
-            self.logger.warning(
-                "(stock_id:%s, trade_time:%s, %s): %s; fallback to close price",
-                stock_id,
-                (start_time, end_time),
-                price_field,
-                deal_price,
-            )
-            deal_price = self.get_close(stock_id, start_time, end_time, method)
-        return deal_price
 
     def _raw_share_count(self, deal_amount: float, factor: float | None) -> int:
         if factor is None or np.isnan(factor) or factor <= 0:
