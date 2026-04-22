@@ -180,13 +180,12 @@ def generate_model_trials(space: Dict[str, List[Any]], n_trials: int, rng: rando
 
 def build_strategy_variants(settings: Dict[str, Any]) -> List[Dict[str, Any]]:
     variants = []
-    for topk, n_drop, strategy, deal_price, rebalance, limit_tplus in itertools.product(
+    for topk, n_drop, strategy, deal_price, rebalance in itertools.product(
         settings["topk_values"],
         settings["n_drop_values"],
         settings["strategy_values"],
         settings["deal_price_values"],
         settings["rebalance_values"],
-        settings["limit_tplus_values"],
     ):
         variants.append(
             {
@@ -195,7 +194,6 @@ def build_strategy_variants(settings: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "strategy": str(strategy),
                 "deal_price": str(deal_price),
                 "rebalance": str(rebalance),
-                "limit_tplus": bool(limit_tplus),
             }
         )
     return variants
@@ -268,7 +266,7 @@ def run_screen_trial(combo_name: str, model_params: Dict[str, Any], screen_segme
 
 
 def build_output_name(combo_name: str, run_tag: str, model_rank: int, strategy_cfg: Dict[str, Any]) -> str:
-    name = (
+    return (
         f"{combo_name}__{run_tag}__m{model_rank:02d}"
         f"_topk{strategy_cfg['topk']}"
         f"_ndrop{strategy_cfg['n_drop']}"
@@ -276,9 +274,6 @@ def build_output_name(combo_name: str, run_tag: str, model_rank: int, strategy_c
         f"_{strategy_cfg['rebalance']}"
         f"_{strategy_cfg['deal_price']}"
     )
-    if strategy_cfg["limit_tplus"]:
-        name += "_tplus"
-    return name
 
 
 def parse_summary_metrics(path: Path) -> Dict[str, Any]:
@@ -346,7 +341,6 @@ def run_backtest_candidate(
             rebalance=strategy_cfg["rebalance"],
             strategy_choice=strategy_cfg["strategy"],
             deal_price=strategy_cfg["deal_price"],
-            limit_tplus=strategy_cfg["limit_tplus"],
         )
 
         ensure_no_active_mlflow_run()
@@ -437,7 +431,6 @@ def resolved_settings(args: argparse.Namespace, config: Dict[str, Any]) -> Dict[
     settings["strategy_values"] = list(resolve_setting(args.strategy_values, config, "strategy_values", ["bucket"]))
     settings["deal_price_values"] = list(resolve_setting(args.deal_price_values, config, "deal_price_values", ["close"]))
     settings["rebalance_values"] = list(resolve_setting(args.rebalance_values, config, "rebalance_values", ["day"]))
-    settings["limit_tplus_values"] = normalize_bool_list(resolve_setting(args.limit_tplus_values, config, "limit_tplus_values", [False]))
     settings["output_root"] = Path(resolve_setting(args.output_root, config, "output_root", DEFAULT_OUTPUT_ROOT))
     settings["promote_best"] = resolve_bool_setting(args.promote_best, config, "promote_best", False)
     settings["clean_best_run"] = resolve_bool_setting(args.clean_best_run, config, "clean_best_run", False)
@@ -494,14 +487,13 @@ def main(argv: List[str] | None = None) -> int:
         model_params = screen_row["model_params"]
         for strategy_cfg in strategy_variants:
             LOGGER.info(
-                "Backtest model rank %d with strategy topk=%s n_drop=%s strategy=%s rebalance=%s deal_price=%s limit_tplus=%s",
+                "Backtest model rank %d with strategy topk=%s n_drop=%s strategy=%s rebalance=%s deal_price=%s",
                 model_rank,
                 strategy_cfg["topk"],
                 strategy_cfg["n_drop"],
                 strategy_cfg["strategy"],
                 strategy_cfg["rebalance"],
                 strategy_cfg["deal_price"],
-                strategy_cfg["limit_tplus"],
             )
             result = run_backtest_candidate(
                 combo_name=settings["combo"],

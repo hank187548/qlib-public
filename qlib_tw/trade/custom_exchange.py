@@ -2,40 +2,33 @@
 """
 Custom exchange implementations for Taiwan equities.
 
-Two execution modes are supported:
-- `TWLimitExchange`: a conservative intraday touch model used for optional limit-order simulation.
-- `TPlusLimitExchange`: historical class name kept for compatibility, but the T+2 paper-trading path
-  now executes at the next session `open` without an additional intraday touch requirement.
+The primary exchange path is `TWExchange`, which keeps the backtest model simple:
+- execute on the configured base deal price (`open`/`close`)
+- apply Taiwan-specific fee logic, including board-lot vs odd-lot minimum fees
+- apply T+N settlement timing on both cash and shares
 
-The shared extensions here are the Taiwan-specific fee model, odd-lot minimum fee handling,
-and T+N settlement state tracking.
+The provider used by this repo already follows adjusted-price semantics for the
+core OHLCV fields, so exchange-side price adjustment is kept as a compatibility
+no-op.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
-from qlib.backtest.exchange import Exchange
 from qlib.backtest.decision import Order, OrderDir
+from qlib.backtest.exchange import Exchange
 
 
-class TWLimitExchange(Exchange):
+class TWExchange(Exchange):
     """
-    Simplified TW limit-order simulation:
-    - Use base_price (default $open) times limit_slippage as limit price.
-    - Buy: no fill if day high < limit; fill at min(base_price, limit).
-    - Sell: no fill if day low > limit; fill at max(base_price, limit).
-    - No order book/partial fill/matching; daily conservative approximation only.
-
-    The provider used by this repo follows Qlib-style adjusted OHLCV semantics.
-    `adjust_prices_for_backtest` is kept only for config compatibility and becomes
-    a no-op once the exchange is initialized.
-
-    Important: the provider `$factor` in this repo is derived from Yahoo `adj_close / close`,
-    so it is treated as a price-only factor and must not be reused as a trading-share
-    or board-lot conversion factor.
+    Taiwan exchange model with:
+    - TW fee model (board lot / odd lot minimum fees)
+    - adjusted-price provider compatibility
+    - T+N settlement for shares and cash
     """
 
     _ADJUSTABLE_PRICE_FIELDS = {"$open", "$high", "$low", "$close", "$vwap"}
@@ -43,19 +36,14 @@ class TWLimitExchange(Exchange):
     def __init__(
         self,
         *args,
-        limit_slippage: float = 0.01,
+        settlement_lag: int = 2,
         odd_lot_min_cost: float = 1.0,
         board_lot_size: int = 1000,
         adjust_prices_for_backtest: bool = False,
         **kwargs,
     ):
-        # Ensure high/low prices are available
-        sub = kwargs.pop("subscribe_fields", [])
-        for fld in ("$high", "$low", "$open"):
-            if fld not in sub:
-                sub.append(fld)
-        super().__init__(*args, subscribe_fields=sub, **kwargs)
-        self.limit_slippage = limit_slippage
+        super().__init__(*args, **kwargs)
+        self.settlement_lag = int(settlement_lag)
         self.odd_lot_min_cost = float(odd_lot_min_cost)
         self.board_lot_size = int(board_lot_size)
         self.adjust_prices_for_backtest = bool(adjust_prices_for_backtest)
@@ -110,8 +98,6 @@ class TWLimitExchange(Exchange):
             return 1.0
         if not self.adjust_prices_for_backtest:
             return super().get_factor(stock_id, start_time, end_time)
-        # In adjusted-price backtests, keep share-count rounding on the raw-share basis.
-        # Yahoo's adj factor includes cash-dividend effects and should only adjust prices.
         return 1.0
 
     def get_quote_info(
@@ -146,16 +132,21 @@ class TWLimitExchange(Exchange):
         method: str | None = "ts_data_last",
     ):
         if direction == OrderDir.SELL:
-            pstr = self.sell_price
+            price_field = self.sell_price
         elif direction == OrderDir.BUY:
-            pstr = self.buy_price
+            price_field = self.buy_price
         else:
-            raise NotImplementedError(f"This type of input is not supported")
+            raise NotImplementedError("Unsupported direction for deal price lookup")
 
-        deal_price = self.get_quote_info(stock_id, start_time, end_time, field=pstr, method=method)
+        deal_price = self.get_quote_info(stock_id, start_time, end_time, field=price_field, method=method)
         if method is not None and (deal_price is None or np.isnan(deal_price) or deal_price <= 1e-08):
-            self.logger.warning(f"(stock_id:{stock_id}, trade_time:{(start_time, end_time)}, {pstr}): {deal_price}!!!")
-            self.logger.warning("setting deal_price to close price")
+            self.logger.warning(
+                "(stock_id:%s, trade_time:%s, %s): %s; fallback to close price",
+                stock_id,
+                (start_time, end_time),
+                price_field,
+                deal_price,
+            )
             deal_price = self.get_close(stock_id, start_time, end_time, method)
         return deal_price
 
@@ -211,29 +202,6 @@ class TWLimitExchange(Exchange):
             else:
                 high = mid
         return best
-
-    def _get_price_with_limit(
-        self, stock_id: str, start_time: pd.Timestamp, end_time: pd.Timestamp, direction: OrderDir
-    ) -> tuple[float | None, bool]:
-        base_price = self.get_deal_price(stock_id, start_time, end_time, direction=direction)
-        high = self.get_quote_info(stock_id, start_time, end_time, field="$high", method="ts_data_last")
-        low = self.get_quote_info(stock_id, start_time, end_time, field="$low", method="ts_data_last")
-        if base_price is None or np.isnan(base_price) or base_price <= 0:
-            return None, False
-        if direction == Order.BUY:
-            if high is None or np.isnan(high) or high <= 0:
-                return base_price, False
-            limit_price = base_price * (1 + self.limit_slippage)
-            if high < limit_price:
-                return base_price, False
-            return min(base_price, limit_price), True
-        else:
-            if low is None or np.isnan(low) or low <= 0:
-                return base_price, False
-            limit_price = base_price * (1 - self.limit_slippage)
-            if low > limit_price:
-                return base_price, False
-            return max(base_price, limit_price), True
 
     def _calc_trade_info_core(self, order, position, dealt_order_amount, trade_price):
         if trade_price is None or np.isnan(trade_price) or trade_price <= 0:
@@ -297,32 +265,8 @@ class TWLimitExchange(Exchange):
         )
         return float(trade_price), float(trade_val), float(trade_cost)
 
-    def _calc_trade_info_by_order(self, order, position, dealt_order_amount):
-        trade_price, touched = self._get_price_with_limit(
-            order.stock_id, order.start_time, order.end_time, direction=order.direction
-        )
-        if trade_price is None or not touched:
-            order.deal_amount = 0.0
-            return np.nan if trade_price is None else float(trade_price), 0.0, 0.0
-        return self._calc_trade_info_core(order, position, dealt_order_amount, trade_price)
-
-
-class TPlusExchange(Exchange):
-    """
-    Simple T+N settlement wrapper:
-    - Buy: cash deducted immediately; shares settle and become sellable after T+N.
-    - Sell: shares deducted immediately; cash settles and becomes usable after T+N.
-    - Unsettled cash is tracked in cash_delay for NAV calculation and does not affect available cash.
-    - Does not override limit/price-limit/volume checks; only changes settlement timing.
-    """
-
-    def __init__(self, *args, settlement_lag: int = 2, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.settlement_lag = settlement_lag
-
     @staticmethod
     def _release_pending(position, current_dt: pd.Timestamp):
-        """Release matured shares and cash back to Position."""
         pend_cash = getattr(position, "_pending_cash", [])
         still_cash = []
         cash_delay_total = 0.0
@@ -354,7 +298,6 @@ class TPlusExchange(Exchange):
         position._pending_stock = pend_stock
 
     def _settle_date(self, dt: pd.Timestamp) -> pd.Timestamp:
-        # Trading-day frequency; simplified by shifting settlement_lag business days
         return (dt + pd.tseries.offsets.BDay(self.settlement_lag)).normalize()
 
     def _available_amount(self, pos, code: str, current_dt: pd.Timestamp) -> float:
@@ -373,129 +316,14 @@ class TPlusExchange(Exchange):
     ):
         if trade_account is not None and position is not None:
             raise ValueError("trade_account and position can only choose one")
-        pos = trade_account.current_position if trade_account else position
-        if pos is None:
-            raise ValueError("position is required for TPlusExchange")
-
-        current_dt = order.start_time.normalize()
-        # Release matured cash/shares
-        self._release_pending(pos, current_dt)
-
-        # Check sellable position excluding unsettled shares
-        if order.direction == Order.SELL:
-            avail = self._available_amount(pos, order.stock_id, current_dt)
-            if avail <= 0:
-                order.deal_amount = 0.0
-                return 0.0, 0.0, np.nan
-            order.amount = min(order.amount, avail)
-
-        # Use base exchange logic to compute trade price/cost/executable size
-        trade_price, trade_val, trade_cost = self._calc_trade_info_by_order(order, pos, dealt_order_amount)
-        if trade_val <= 1e-5:
-            return float(trade_price), float(trade_val), float(trade_cost)
-
-        settle_dt = self._settle_date(current_dt)
-
-        if order.direction == Order.BUY:
-            # Deduct cash immediately and mark shares as pending
-            pos.position["cash"] -= trade_val + trade_cost
-            pend_stock = getattr(pos, "_pending_stock", {})
-            pend_stock.setdefault(order.stock_id, []).append((settle_dt, order.deal_amount, trade_price))
-            pos._pending_stock = pend_stock
-        elif order.direction == Order.SELL:
-            # Deduct shares and mark cash as pending
-            current_amt = pos.get_stock_amount(order.stock_id)
-            new_amt = current_amt - order.deal_amount
-            if new_amt <= 0:
-                if order.stock_id in pos.position:
-                    pos._del_stock(order.stock_id)
-            else:
-                pos.position[order.stock_id]["amount"] = new_amt
-            pend_cash = getattr(pos, "_pending_cash", [])
-            cash_in = trade_val - trade_cost
-            pend_cash.append((settle_dt, cash_in))
-            pos._pending_cash = pend_cash
-            # Update cash_delay for total asset calculation
-            pos.position["cash_delay"] = pos.position.get("cash_delay", 0.0) + cash_in
-        else:
-            raise NotImplementedError(f"direction {order.direction} is not supported")
-
-        return float(trade_val), float(trade_cost), float(trade_price)
-
-
-class TPlusLimitExchange(TWLimitExchange):
-    """
-    Historical compatibility name for next-open T+N settlement with Taiwan-specific costs.
-
-    This path no longer requires an extra intraday touch filter.
-    It executes using the configured base deal price (currently `open` for paper trading)
-    and applies T+N settlement timing on top.
-
-    - Buy: cash is deducted immediately; shares settle and become sellable after T+N
-    - Sell: shares are deducted immediately; cash settles and becomes usable after T+N
-    """
-
-    def __init__(self, *args, settlement_lag: int = 2, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.settlement_lag = settlement_lag
-
-    def _available_amount(self, pos, code: str, current_dt: pd.Timestamp) -> float:
-        total = pos.get_stock_amount(code)
-        locked = 0.0
-        for _, amt, _ in getattr(pos, "_pending_stock", {}).get(code, []):
-            locked += amt
-        return max(total - locked, 0.0)
-
-    @staticmethod
-    def _release_pending(position, current_dt: pd.Timestamp):
-        pend_cash = getattr(position, "_pending_cash", [])
-        still_cash = []
-        cash_delay_total = 0.0
-        for rel_dt, amt in pend_cash:
-            if rel_dt <= current_dt:
-                position.position["cash"] += amt
-            else:
-                still_cash.append((rel_dt, amt))
-                cash_delay_total += amt
-        if cash_delay_total > 0:
-            position.position["cash_delay"] = cash_delay_total
-        elif "cash_delay" in position.position:
-            del position.position["cash_delay"]
-        position._pending_cash = still_cash
-
-        pend_stock = getattr(position, "_pending_stock", {})
-        to_delete = []
-        for code, items in pend_stock.items():
-            remaining = []
-            for rel_dt, amt, price in items:
-                if rel_dt > current_dt:
-                    remaining.append((rel_dt, amt, price))
-            if remaining:
-                pend_stock[code] = remaining
-            else:
-                to_delete.append(code)
-        for code in to_delete:
-            del pend_stock[code]
-        position._pending_stock = pend_stock
-
-    def _settle_date(self, dt: pd.Timestamp) -> pd.Timestamp:
-        return (dt + pd.tseries.offsets.BDay(self.settlement_lag)).normalize()
-
-    def deal_order(
-        self,
-        order: Order,
-        trade_account=None,
-        position=None,
-        dealt_order_amount=defaultdict(float),
-    ):
         if trade_account is None and position is None:
-            raise ValueError("position is required for TPlusLimitExchange")
+            raise ValueError("position is required for TWExchange")
+
         pos = trade_account.current_position if trade_account else position
 
         current_dt = order.start_time.normalize()
         self._release_pending(pos, current_dt)
 
-        # Only settled shares are sellable
         if order.direction == Order.SELL:
             avail = self._available_amount(pos, order.stock_id, current_dt)
             if avail <= 0:
@@ -503,30 +331,24 @@ class TPlusLimitExchange(TWLimitExchange):
                 return 0.0, 0.0, np.nan
             order.amount = min(order.amount, avail)
 
-        # Execute directly on the configured base deal price; no extra high/low touch filter.
-        # Use TWLimitExchange.get_deal_price so adjusted-price backtests also trade on the
-        # adjusted price scale instead of mixing adjusted valuation with raw execution.
         trade_price = self.get_deal_price(
             order.stock_id,
             order.start_time,
             order.end_time,
             direction=order.direction,
         )
-        trade_price, trade_val, trade_cost = TWLimitExchange._calc_trade_info_core(
-            self,
+        trade_price, trade_val, trade_cost = self._calc_trade_info_core(
             order,
             pos,
             dealt_order_amount,
             trade_price,
         )
         if trade_val <= 1e-5:
-            return float(trade_price), float(trade_val), float(trade_cost)
+            return float(trade_val), float(trade_cost), float(trade_price)
 
-        # Record pre-trade cash/position
         pre_cash = pos.get_cash()
         pre_amt = pos.get_stock_amount(order.stock_id)
 
-        # Update turnover/cost stats through trade_account
         if trade_account:
             trade_account.update_order(order=order, trade_val=trade_val, cost=trade_cost, trade_price=trade_price)
         else:
@@ -535,7 +357,6 @@ class TPlusLimitExchange(TWLimitExchange):
         settle_dt = self._settle_date(current_dt)
 
         if order.direction == Order.BUY:
-            # Mark newly bought shares as pending settlement without affecting turnover
             post_amt = pos.get_stock_amount(order.stock_id)
             delta_amt = max(post_amt - pre_amt, 0.0)
             if delta_amt > 0:
@@ -543,7 +364,6 @@ class TPlusLimitExchange(TWLimitExchange):
                 pend_stock.setdefault(order.stock_id, []).append((settle_dt, delta_amt, trade_price))
                 pos._pending_stock = pend_stock
         elif order.direction == Order.SELL:
-            # Mark cash as pending settlement and deduct available cash immediately
             post_cash = pos.get_cash()
             cash_in = post_cash - pre_cash
             if cash_in > 0:

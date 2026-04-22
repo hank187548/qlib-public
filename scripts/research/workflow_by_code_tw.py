@@ -50,8 +50,6 @@ def _add_backtest_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--rebalance", choices=["day", "week"], default="day", help="Rebalance frequency for backtest/exchange")
     parser.add_argument("--strategy", choices=["bucket", "equal"], default="bucket", help="bucketed weights or equal-weight TopkDropout")
     parser.add_argument("--deal-price", choices=["close", "open"], default="close", help="Execution price assumption for backtest")
-    parser.add_argument("--simulate-limit", action="store_true", help="Enable simplified limit-order simulation")
-    parser.add_argument("--limit-slippage", type=float, default=0.01, help="Limit price offset relative to base_price")
 
 
 def parse_args() -> argparse.Namespace:
@@ -173,8 +171,6 @@ def _run_backtest(args: argparse.Namespace, specs: list[dict], recorder_ids: dic
             rebalance=args.rebalance,
             strategy_choice=args.strategy,
             deal_price=args.deal_price,
-            simulate_limit=args.simulate_limit,
-            limit_slippage=args.limit_slippage,
             recorder_override=recorder_override,
         )
 

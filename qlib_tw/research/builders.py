@@ -57,9 +57,6 @@ def apply_strategy_overrides(
     rebalance: str = "day",
     strategy_choice: str = "bucket",
     deal_price: str = "close",
-    simulate_limit: bool = False,
-    limit_slippage: float = 0.01,
-    limit_tplus: bool = False,
     adjust_prices_for_backtest: bool = False,
 ) -> Dict[str, Any]:
     if strategy_choice == "equal":
@@ -75,42 +72,19 @@ def apply_strategy_overrides(
 
     port_config["backtest"]["exchange_kwargs"]["deal_price"] = deal_price
 
-    if simulate_limit and limit_tplus:
-        raise ValueError("simulate_limit and limit_tplus cannot be enabled together")
-    if adjust_prices_for_backtest and not (simulate_limit or limit_tplus):
-        raise ValueError("adjust_prices_for_backtest currently requires simulate_limit or limit_tplus")
-
-    if simulate_limit:
-        base_ex_kwargs = deepcopy(port_config["backtest"]["exchange_kwargs"])
-        exchange_cfg = {
-            "class": "TWLimitExchange",
-            "module_path": "qlib_tw.trade.custom_exchange",
-            "kwargs": {
-                **base_ex_kwargs,
-                "start_time": port_config["backtest"]["start_time"],
-                "end_time": port_config["backtest"]["end_time"],
-                "codes": task_cfg["dataset"]["kwargs"]["handler"]["kwargs"]["instruments"],
-                "limit_slippage": limit_slippage,
-                "adjust_prices_for_backtest": adjust_prices_for_backtest,
-            },
-        }
-        port_config["backtest"]["exchange_kwargs"] = {"exchange": exchange_cfg}
-
-    if limit_tplus:
-        base_ex_kwargs = deepcopy(port_config["backtest"]["exchange_kwargs"])
-        base_ex_kwargs["deal_price"] = "open"
-        exchange_cfg = {
-            "class": "TPlusLimitExchange",
-            "module_path": "qlib_tw.trade.custom_exchange",
-            "kwargs": {
-                **base_ex_kwargs,
-                "start_time": port_config["backtest"]["start_time"],
-                "end_time": port_config["backtest"]["end_time"],
-                "codes": task_cfg["dataset"]["kwargs"]["handler"]["kwargs"]["instruments"],
-                "settlement_lag": 2,
-                "adjust_prices_for_backtest": adjust_prices_for_backtest,
-            },
-        }
-        port_config["backtest"]["exchange_kwargs"] = {"exchange": exchange_cfg}
+    base_ex_kwargs = deepcopy(port_config["backtest"]["exchange_kwargs"])
+    exchange_cfg = {
+        "class": "TWExchange",
+        "module_path": "qlib_tw.trade.custom_exchange",
+        "kwargs": {
+            **base_ex_kwargs,
+            "start_time": port_config["backtest"]["start_time"],
+            "end_time": port_config["backtest"]["end_time"],
+            "codes": task_cfg["dataset"]["kwargs"]["handler"]["kwargs"]["instruments"],
+            "settlement_lag": 2,
+            "adjust_prices_for_backtest": adjust_prices_for_backtest,
+        },
+    }
+    port_config["backtest"]["exchange_kwargs"] = {"exchange": exchange_cfg}
 
     return port_config

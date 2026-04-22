@@ -44,9 +44,6 @@ def build_effective_name(
     rebalance: str = "day",
     strategy_choice: str = "bucket",
     deal_price: str = "close",
-    simulate_limit: bool = False,
-    limit_slippage: float = 0.01,
-    limit_tplus: bool = False,
     adjust_prices_for_backtest: bool = False,
 ) -> str:
     effective_name = combo_name
@@ -58,14 +55,8 @@ def build_effective_name(
         effective_name = f"{effective_name}_{rebalance}"
     if strategy_choice != "bucket":
         effective_name = f"{effective_name}_{strategy_choice}"
-    actual_deal_price = "open" if limit_tplus else deal_price
-    if actual_deal_price != "close" or simulate_limit or limit_tplus:
-        effective_name = f"{effective_name}_{actual_deal_price}"
-    if simulate_limit:
-        slippage_tag = str(limit_slippage).replace(".", "p").replace("-", "m")
-        effective_name = f"{effective_name}_simlimit{slippage_tag}"
-    if limit_tplus:
-        effective_name = f"{effective_name}_tplus"
+    if deal_price != "close":
+        effective_name = f"{effective_name}_{deal_price}"
     if adjust_prices_for_backtest:
         effective_name = f"{effective_name}_adjpx"
     return effective_name

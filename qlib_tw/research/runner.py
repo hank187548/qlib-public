@@ -165,9 +165,6 @@ def backtest_combo(
     rebalance: str = "day",
     strategy_choice: str = "bucket",
     deal_price: str = "close",
-    simulate_limit: bool = False,
-    limit_slippage: float = 0.01,
-    limit_tplus: bool = False,
     recorder_override: str | None = None,
     model_kwargs_override: Dict[str, object] | None = None,
     account_override: float | None = None,
@@ -182,9 +179,6 @@ def backtest_combo(
         rebalance=rebalance,
         strategy_choice=strategy_choice,
         deal_price=deal_price,
-        simulate_limit=simulate_limit,
-        limit_slippage=limit_slippage,
-        limit_tplus=limit_tplus,
         adjust_prices_for_backtest=adjust_prices_for_backtest,
     )
     paths = set_backtest_output_dirs(effective_name)
@@ -227,9 +221,6 @@ def backtest_combo(
         rebalance=rebalance,
         strategy_choice=strategy_choice,
         deal_price=deal_price,
-        simulate_limit=simulate_limit,
-        limit_slippage=limit_slippage,
-        limit_tplus=limit_tplus,
         adjust_prices_for_backtest=adjust_prices_for_backtest,
     )
     active_provider_uri = base_provider_uri
