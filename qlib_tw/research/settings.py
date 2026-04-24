@@ -43,22 +43,6 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
             "num_threads": os.cpu_count() or 8,
         },
     },
-    "lgb_run11": {
-        "class": "LGBModel",
-        "module_path": "qlib.contrib.model.gbdt",
-        "kwargs": {
-            "loss": "mse",
-            "colsample_bytree": 0.75,
-            "learning_rate": 0.02,
-            "subsample": 0.7,
-            "lambda_l1": 50.0,
-            "lambda_l2": 150.0,
-            "max_depth": 7,
-            "num_leaves": 128,
-            "min_child_samples": 80,
-            "num_threads": os.cpu_count() or 8,
-        },
-    },
     "xgb": {
         "class": "XGBModel",
         "module_path": "qlib.contrib.model.xgboost",
@@ -96,41 +80,12 @@ HANDLER_CONFIGS: Dict[str, Dict[str, str]] = {
     "alpha360": {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"},
 }
 
-ALPHA158_INFER_PIPELINE = [
-    {"class": "ProcessInf", "kwargs": {}},
-    {"class": "ZScoreNorm", "kwargs": {}},
-    {"class": "Fillna", "kwargs": {}},
-]
-
 COMBO_CONFIGS = {
     "alpha158_lgb": {"handler": "alpha158", "model": "lgb", "max_instruments": None, "infer_processors": []},
-    "alpha158_lgb_run11": {
-        "handler": "alpha158",
-        "model": "lgb_run11",
-        "max_instruments": None,
-        "infer_processors": [],
-    },
-    "alpha158_lgb_pro_fil": {
-        "handler": "alpha158",
-        "model": "lgb",
-        "max_instruments": None,
-        "infer_processors": ALPHA158_INFER_PIPELINE,
-    },
     "alpha360_lgb": {"handler": "alpha360", "model": "lgb", "max_instruments": None, "infer_processors": None},
-    "alpha158_xgb": {
-        "handler": "alpha158",
-        "model": "xgb",
-        "max_instruments": None,
-        "infer_processors": ALPHA158_INFER_PIPELINE,
-    },
+    "alpha158_xgb": {"handler": "alpha158", "model": "xgb", "max_instruments": None, "infer_processors": []},
     "alpha360_xgb": {"handler": "alpha360", "model": "xgb", "max_instruments": None, "infer_processors": None},
     "alpha158_cat": {"handler": "alpha158", "model": "cat", "max_instruments": None, "infer_processors": []},
-    "alpha158_cat_pro_fil": {
-        "handler": "alpha158",
-        "model": "cat",
-        "max_instruments": None,
-        "infer_processors": ALPHA158_INFER_PIPELINE,
-    },
     "alpha360_cat": {"handler": "alpha360", "model": "cat", "max_instruments": None, "infer_processors": None},
 }
 

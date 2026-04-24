@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 import shutil
@@ -149,6 +150,15 @@ def train_combo(
         segments=segments,
         paths=paths,
     )
+    metadata = {
+        "run_name": combo_name,
+        "train_experiment": train_exp,
+        "train_recorder_id": model_rid,
+        "handler_key": handler_key,
+        "model_key": model_key,
+        "output_root": str(paths.output_root),
+    }
+    (paths.output_root / "train_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     LOGGER.info("Model training complete, recorder id = %s", model_rid)
     return model_rid
 

@@ -4,9 +4,9 @@ import itertools
 import json
 import logging
 import shutil
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 import mlflow
 import pandas as pd
@@ -15,14 +15,13 @@ from qlib.utils import init_instance_by_config
 from qlib.workflow import R
 from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
-from qlib_tw.data_layout import build_exp_manager_config, resolve_workspace_path
+from qlib_tw.data_layout import build_exp_manager_config, resolve_provider_uri, resolve_raw_data_dir, resolve_workspace_path
+from qlib_tw.research.builders import apply_strategy_overrides, build_port_analysis_config, build_task_config
 from qlib_tw.research.get_data_tai import run_collect
-from qlib_tw.research.settings import WORK_DIR
-from qlib_tw.trade.config import PaperTradingProfile
-from qlib_tw.trade.replay import _dynamic_port_config, _dynamic_task_config, latest_calendar_date, latest_trade_date_on_or_before
+from qlib_tw.research.settings import BENCHMARK, COMBO_CONFIGS, PROVIDER_URI, REGION, WORK_DIR, load_full_universe
 
 
-LOGGER = logging.getLogger("qlib_tw.trade.execution_search")
+LOGGER = logging.getLogger("qlib_tw.research.backtest_search")
 
 
 def _resolve_path(value: str | Path | None) -> Path | None:
@@ -56,17 +55,6 @@ def _save_rows_csv(rows: List[Dict[str, Any]], path: Path) -> None:
     pd.DataFrame([_flatten_row(row) for row in rows]).to_csv(path, index=False)
 
 
-def _parse_bool_token(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"1", "true", "yes", "y", "on"}:
-        return True
-    if text in {"0", "false", "no", "n", "off"}:
-        return False
-    raise ValueError(f"Unsupported boolean token: {value}")
-
-
 def _ensure_no_active_mlflow_run() -> None:
     while mlflow.active_run() is not None:
         mlflow.end_run()
@@ -79,15 +67,33 @@ def _reset_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
-def _build_calendar_overlay_provider(base_provider_uri: Path, overlay_uri: Path) -> Path:
-    day_file = base_provider_uri / "calendars" / "day.txt"
+def _read_calendar_dates(provider_uri: Path) -> list[pd.Timestamp]:
+    day_file = provider_uri / "calendars" / "day.txt"
     lines = [line.strip() for line in day_file.read_text().splitlines() if line.strip()]
     if not lines:
         raise RuntimeError(f"Calendar file is empty: {day_file}")
-    base_calendar = [pd.Timestamp(line).normalize() for line in lines]
-    next_business_day = (base_calendar[-1] + pd.tseries.offsets.BDay(1)).normalize()
+    return [pd.Timestamp(line).normalize() for line in lines]
 
+
+def _latest_calendar_date(provider_uri: Path) -> pd.Timestamp:
+    return _read_calendar_dates(provider_uri)[-1]
+
+
+def _latest_trade_date_on_or_before(provider_uri: Path, target_date: pd.Timestamp) -> pd.Timestamp:
+    target_date = pd.Timestamp(target_date).normalize()
+    eligible_dates = [dt for dt in _read_calendar_dates(provider_uri) if dt <= target_date]
+    if not eligible_dates:
+        raise RuntimeError(
+            f"No available trade date on or before {target_date.strftime('%Y-%m-%d')} under {provider_uri}"
+        )
+    return eligible_dates[-1]
+
+
+def _build_calendar_overlay_provider(base_provider_uri: Path, overlay_uri: Path) -> Path:
+    base_calendar = _read_calendar_dates(base_provider_uri)
+    next_business_day = (base_calendar[-1] + pd.tseries.offsets.BDay(1)).normalize()
     overlay_uri.mkdir(parents=True, exist_ok=True)
+
     for dirname in ("features", "instruments"):
         source = (base_provider_uri / dirname).resolve()
         target = overlay_uri / dirname
@@ -100,8 +106,9 @@ def _build_calendar_overlay_provider(base_provider_uri: Path, overlay_uri: Path)
     calendars_dir = overlay_uri / "calendars"
     calendars_dir.mkdir(parents=True, exist_ok=True)
     overlay_lines = [dt.strftime("%Y-%m-%d") for dt in base_calendar]
-    if overlay_lines[-1] != next_business_day.strftime("%Y-%m-%d"):
-        overlay_lines.append(next_business_day.strftime("%Y-%m-%d"))
+    next_label = next_business_day.strftime("%Y-%m-%d")
+    if overlay_lines[-1] != next_label:
+        overlay_lines.append(next_label)
     (calendars_dir / "day.txt").write_text("\n".join(overlay_lines) + "\n", encoding="utf-8")
     return overlay_uri
 
@@ -164,83 +171,124 @@ def _risk_degree_slug(value: float) -> str:
     return str(value).replace(".", "p")
 
 
-def _profile_payload(profile: PaperTradingProfile) -> Dict[str, Any]:
-    payload = asdict(profile)
-    for key, value in list(payload.items()):
-        if isinstance(value, Path):
-            payload[key] = str(value)
-    return payload
-
-
 @dataclass(frozen=True)
-class ExecutionGridConfig:
+class BacktestSearchConfig:
     name: str
-    paper_profile: Path
+    combo: str
+    train_experiment: str
+    train_recorder_id: str
     target_date: str
-    output_root: Path = WORK_DIR / "outputs" / "execution_grid"
+    train_metadata: Path | None = None
+    backtest_start: str = "2025-07-01"
+    data_start: str = "2018-01-01"
+    data_refresh_start: str = "2018-01-01"
+    provider_uri: Path = PROVIDER_URI.resolve()
+    output_root: Path = WORK_DIR / "outputs" / "backtest_search"
     ranking_metric: str = "risk.excess_return_with_cost.annualized_return"
     minimize_metric: bool = False
     refresh_data: bool = False
+    account: float = 1_000_000.0
+    open_cost: float = 0.00092625
+    close_cost: float = 0.00392625
+    min_cost: float = 20.0
+    odd_lot_min_cost: float = 1.0
+    board_lot_size: int = 1000
+    trade_unit: int = 1
     topk_values: List[int] | None = None
     n_drop_values: List[int] | None = None
     strategy_values: List[str] | None = None
     deal_price_values: List[str] | None = None
     rebalance_values: List[str] | None = None
-    limit_tplus_values: List[bool] | None = None
     risk_degree_values: List[float] | None = None
     settlement_lag_values: List[int] | None = None
+    region: str = REGION
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "ExecutionGridConfig":
+    def from_json(cls, path: str | Path) -> "BacktestSearchConfig":
         config_path = _resolve_path(path)
         if config_path is None or not config_path.exists():
-            raise FileNotFoundError(f"Execution grid config not found: {path}")
+            raise FileNotFoundError(f"Backtest search config not found: {path}")
         payload = json.loads(config_path.read_text(encoding="utf-8"))
-        paper_profile = _resolve_path(payload.get("paper_profile"))
-        if paper_profile is None:
-            raise ValueError("paper_profile is required")
-        output_root = _resolve_path(payload.get("output_root")) or (WORK_DIR / "outputs" / "execution_grid")
+        train_metadata = _resolve_path(payload.get("train_metadata"))
+        metadata_payload = {}
+        if train_metadata is not None:
+            if not train_metadata.exists():
+                raise FileNotFoundError(f"Train metadata file not found: {train_metadata}")
+            metadata_payload = json.loads(train_metadata.read_text(encoding="utf-8"))
+        train_experiment = str(payload.get("train_experiment") or metadata_payload.get("train_experiment") or "")
+        train_recorder_id = str(payload.get("train_recorder_id") or metadata_payload.get("train_recorder_id") or "")
+        if not train_experiment or not train_recorder_id:
+            raise ValueError("Backtest search config requires train_experiment/train_recorder_id or train_metadata")
+        provider_uri = resolve_provider_uri(_resolve_path(payload.get("provider_uri")) or PROVIDER_URI.resolve())
+        output_root = _resolve_path(payload.get("output_root")) or (WORK_DIR / "outputs" / "backtest_search")
+        combo = str(payload["combo"])
+        if combo not in COMBO_CONFIGS:
+            raise ValueError(f"Unsupported combo in backtest search config: {combo}")
         return cls(
             name=str(payload["name"]),
-            paper_profile=paper_profile,
+            combo=combo,
+            train_experiment=train_experiment,
+            train_recorder_id=train_recorder_id,
+            train_metadata=train_metadata,
             target_date=str(payload["target_date"]),
+            backtest_start=str(payload.get("backtest_start", "2025-07-01")),
+            data_start=str(payload.get("data_start", "2018-01-01")),
+            data_refresh_start=str(payload.get("data_refresh_start", payload.get("data_start", "2018-01-01"))),
+            provider_uri=provider_uri.resolve(),
             output_root=output_root,
             ranking_metric=str(payload.get("ranking_metric", "risk.excess_return_with_cost.annualized_return")),
             minimize_metric=bool(payload.get("minimize_metric", False)),
             refresh_data=bool(payload.get("refresh_data", False)),
+            account=float(payload.get("account", 1_000_000.0)),
+            open_cost=float(payload.get("open_cost", 0.00092625)),
+            close_cost=float(payload.get("close_cost", 0.00392625)),
+            min_cost=float(payload.get("min_cost", 20.0)),
+            odd_lot_min_cost=float(payload.get("odd_lot_min_cost", 1.0)),
+            board_lot_size=int(payload.get("board_lot_size", 1000)),
+            trade_unit=int(payload.get("trade_unit", 1)),
             topk_values=[int(v) for v in payload.get("topk_values", [])] or None,
             n_drop_values=[int(v) for v in payload.get("n_drop_values", [])] or None,
             strategy_values=[str(v) for v in payload.get("strategy_values", [])] or None,
             deal_price_values=[str(v) for v in payload.get("deal_price_values", [])] or None,
             rebalance_values=[str(v) for v in payload.get("rebalance_values", [])] or None,
-            limit_tplus_values=[_parse_bool_token(v) for v in payload.get("limit_tplus_values", [])] or None,
             risk_degree_values=[float(v) for v in payload.get("risk_degree_values", [])] or None,
             settlement_lag_values=[int(v) for v in payload.get("settlement_lag_values", [])] or None,
+            region=str(payload.get("region", REGION)),
         )
+
+    @property
+    def combo_spec(self) -> Dict[str, object]:
+        return COMBO_CONFIGS[self.combo]
+
+    @property
+    def resolved_provider_uri(self) -> Path:
+        return self.provider_uri.resolve()
 
     @property
     def resolved_output_root(self) -> Path:
         return (self.output_root / self.name).resolve()
 
+    @property
+    def resolved_raw_dir(self) -> Path:
+        return resolve_raw_data_dir()
 
-def build_strategy_variants(config: ExecutionGridConfig, base_profile: PaperTradingProfile) -> List[Dict[str, Any]]:
-    topk_values = config.topk_values or [base_profile.topk]
-    n_drop_values = config.n_drop_values or [base_profile.n_drop]
-    strategy_values = config.strategy_values or [base_profile.strategy]
-    deal_price_values = config.deal_price_values or [base_profile.deal_price]
-    rebalance_values = config.rebalance_values or [base_profile.rebalance]
-    limit_tplus_values = config.limit_tplus_values or [base_profile.limit_tplus]
-    risk_degree_values = config.risk_degree_values or [base_profile.risk_degree]
-    settlement_lag_values = config.settlement_lag_values or [base_profile.settlement_lag]
+
+def build_strategy_variants(config: BacktestSearchConfig) -> List[Dict[str, Any]]:
+    topk_values = config.topk_values or [50]
+    n_drop_values = config.n_drop_values or [5]
+    strategy_values = config.strategy_values or ["bucket"]
+    deal_price_values = config.deal_price_values or ["close"]
+    rebalance_values = config.rebalance_values or ["day"]
+    risk_degree_values = config.risk_degree_values or [0.95]
+    settlement_lag_values = config.settlement_lag_values or [2]
 
     variants: List[Dict[str, Any]] = []
-    for topk, n_drop, strategy, deal_price, rebalance, limit_tplus, risk_degree, settlement_lag in itertools.product(
+    for topk, n_drop, strategy, deal_price, rebalance, risk_degree, settlement_lag in itertools.product(
         topk_values,
         n_drop_values,
         strategy_values,
         deal_price_values,
         rebalance_values,
-        limit_tplus_values,
         risk_degree_values,
         settlement_lag_values,
     ):
@@ -251,7 +299,6 @@ def build_strategy_variants(config: ExecutionGridConfig, base_profile: PaperTrad
                 "strategy": str(strategy),
                 "deal_price": str(deal_price),
                 "rebalance": str(rebalance),
-                "limit_tplus": bool(limit_tplus),
                 "risk_degree": float(risk_degree),
                 "settlement_lag": int(settlement_lag),
             }
@@ -259,69 +306,102 @@ def build_strategy_variants(config: ExecutionGridConfig, base_profile: PaperTrad
     return variants
 
 
-def _build_variant_profile(base_profile: PaperTradingProfile, variant: Dict[str, Any]) -> PaperTradingProfile:
-    return replace(
-        base_profile,
-        topk=int(variant["topk"]),
-        n_drop=int(variant["n_drop"]),
-        strategy=str(variant["strategy"]),
-        deal_price=str(variant["deal_price"]),
-        rebalance=str(variant["rebalance"]),
-        limit_tplus=bool(variant["limit_tplus"]),
-        risk_degree=float(variant["risk_degree"]),
-        settlement_lag=int(variant["settlement_lag"]),
+def _variant_slug(variant: Dict[str, Any]) -> str:
+    return "_".join(
+        [
+            str(variant["strategy"]),
+            f"topk{variant['topk']}",
+            f"ndrop{variant['n_drop']}",
+            f"risk{_risk_degree_slug(float(variant['risk_degree']))}",
+            str(variant["rebalance"]),
+            str(variant["deal_price"]),
+            f"tplus{variant['settlement_lag']}",
+        ]
     )
 
 
-def _variant_slug(variant: Dict[str, Any]) -> str:
-    parts = [
-        str(variant["strategy"]),
-        f"topk{variant['topk']}",
-        f"ndrop{variant['n_drop']}",
-        f"risk{_risk_degree_slug(float(variant['risk_degree']))}",
-        str(variant["rebalance"]),
-        str(variant["deal_price"]),
-    ]
-    if variant["limit_tplus"]:
-        parts.append("tplus")
-    return "_".join(parts)
-
-
-def _refresh_provider_data(profile: PaperTradingProfile, target_date: pd.Timestamp) -> int:
+def _refresh_provider_data(config: BacktestSearchConfig, target_date: pd.Timestamp) -> int:
     LOGGER.info(
         "Refreshing shared provider %s from %s to %s",
-        profile.resolved_provider_uri,
-        profile.data_refresh_start,
+        config.resolved_provider_uri,
+        config.data_refresh_start,
         target_date.strftime("%Y-%m-%d"),
     )
     return run_collect(
-        start=profile.data_refresh_start,
+        start=config.data_refresh_start,
         end=target_date.strftime("%Y-%m-%d"),
-        target_dir=profile.resolved_provider_uri,
-        raw_dir=profile.resolved_raw_dir,
+        target_dir=config.resolved_provider_uri,
+        raw_dir=config.resolved_raw_dir,
     )
 
 
 def _init_qlib(provider_uri: Path, region: str) -> None:
-    LOGGER.info("Initialize Qlib for execution grid, provider uri: %s", provider_uri)
+    LOGGER.info("Initialize Qlib for backtest search, provider uri: %s", provider_uri)
     qlib.init(provider_uri=str(provider_uri), region=region, exp_manager=build_exp_manager_config())
 
 
-def run_execution_grid(config: ExecutionGridConfig) -> Dict[str, Any]:
-    base_profile = PaperTradingProfile.from_json(config.paper_profile)
+def _build_task_config(config: BacktestSearchConfig, provider_uri: Path, effective_end: pd.Timestamp) -> dict:
+    spec = config.combo_spec
+    task_cfg = build_task_config(
+        handler_key=spec["handler"],
+        model_key=spec["model"],
+        instruments=[],
+        max_instruments=spec.get("max_instruments"),
+        infer_processors=spec.get("infer_processors"),
+    )
+    all_codes = load_full_universe(provider_uri, benchmark=BENCHMARK)
+    universe = [code for code in all_codes if not code.startswith("^")]
+    task_cfg["dataset"]["kwargs"]["handler"]["kwargs"]["instruments"] = universe
+    handler_kwargs = task_cfg["dataset"]["kwargs"]["handler"]["kwargs"]
+    handler_kwargs["start_time"] = config.data_start
+    handler_kwargs["end_time"] = effective_end.strftime("%Y-%m-%d")
+    fit_end_time = pd.Timestamp(handler_kwargs["fit_end_time"])
+    if fit_end_time > effective_end:
+        handler_kwargs["fit_end_time"] = effective_end.strftime("%Y-%m-%d")
+    task_cfg["dataset"]["kwargs"]["segments"]["test"] = (config.backtest_start, effective_end.strftime("%Y-%m-%d"))
+    return task_cfg
+
+
+def _build_port_config(config: BacktestSearchConfig, task_cfg: dict, effective_end: pd.Timestamp, variant: Dict[str, Any]) -> dict:
+    port_config = build_port_analysis_config()
+    port_config["backtest"]["start_time"] = config.backtest_start
+    port_config["backtest"]["end_time"] = effective_end.strftime("%Y-%m-%d")
+    port_config["backtest"]["account"] = config.account
+    port_config["backtest"]["exchange_kwargs"]["open_cost"] = config.open_cost
+    port_config["backtest"]["exchange_kwargs"]["close_cost"] = config.close_cost
+    port_config["backtest"]["exchange_kwargs"]["min_cost"] = config.min_cost
+    port_config["backtest"]["exchange_kwargs"]["trade_unit"] = config.trade_unit
+    apply_strategy_overrides(
+        port_config,
+        task_cfg,
+        n_drop_override=int(variant["n_drop"]),
+        topk_override=int(variant["topk"]),
+        rebalance=str(variant["rebalance"]),
+        strategy_choice=str(variant["strategy"]),
+        deal_price=str(variant["deal_price"]),
+    )
+    port_config["strategy"]["kwargs"]["risk_degree"] = float(variant["risk_degree"])
+    exchange_kwargs = port_config["backtest"]["exchange_kwargs"]["exchange"]["kwargs"]
+    exchange_kwargs["odd_lot_min_cost"] = config.odd_lot_min_cost
+    exchange_kwargs["board_lot_size"] = config.board_lot_size
+    exchange_kwargs["settlement_lag"] = int(variant["settlement_lag"])
+    return port_config
+
+
+def run_backtest_search(config: BacktestSearchConfig) -> Dict[str, Any]:
     target_date = pd.Timestamp(config.target_date).normalize()
     output_root = config.resolved_output_root
     output_root.mkdir(parents=True, exist_ok=True)
 
     if config.refresh_data:
-        exit_code = _refresh_provider_data(base_profile, target_date)
+        exit_code = _refresh_provider_data(config, target_date)
         if exit_code != 0:
             raise RuntimeError(f"Data refresh failed with exit code {exit_code}")
 
-    base_provider_uri = base_profile.resolved_provider_uri
-    effective_end = latest_trade_date_on_or_before(base_provider_uri, target_date)
+    base_provider_uri = config.resolved_provider_uri
+    effective_end = _latest_trade_date_on_or_before(base_provider_uri, target_date)
     active_provider_uri = base_provider_uri
-    if effective_end == latest_calendar_date(base_provider_uri):
+    if effective_end == _latest_calendar_date(base_provider_uri):
         overlay_uri = output_root / "_provider_overlay"
         active_provider_uri = _build_calendar_overlay_provider(base_provider_uri, overlay_uri)
         LOGGER.info(
@@ -330,21 +410,20 @@ def run_execution_grid(config: ExecutionGridConfig) -> Dict[str, Any]:
             effective_end.strftime("%Y-%m-%d"),
         )
 
-    _init_qlib(active_provider_uri, base_profile.region)
-    task_cfg = _dynamic_task_config(base_profile, active_provider_uri, effective_end)
+    _init_qlib(active_provider_uri, config.region)
+    task_cfg = _build_task_config(config, active_provider_uri, effective_end)
     dataset = init_instance_by_config(task_cfg["dataset"])
-    train_recorder = R.get_recorder(experiment_name=base_profile.train_experiment, recorder_id=base_profile.train_recorder_id)
+    train_recorder = R.get_recorder(experiment_name=config.train_experiment, recorder_id=config.train_recorder_id)
     trained_model = train_recorder.load_object("trained_model")
     pred_df = trained_model.predict(dataset, segment="test")
     if isinstance(pred_df, pd.Series):
         pred_df = pred_df.to_frame("score")
     label_df = SignalRecord.generate_label(dataset)
 
-    variants = build_strategy_variants(config, base_profile)
+    variants = build_strategy_variants(config)
     _save_json(
         {
             "config": _flatten_row(asdict(config)),
-            "base_profile": _profile_payload(base_profile),
             "active_provider_uri": str(active_provider_uri),
             "effective_end": effective_end.strftime("%Y-%m-%d"),
             "variant_count": len(variants),
@@ -353,19 +432,13 @@ def run_execution_grid(config: ExecutionGridConfig) -> Dict[str, Any]:
     )
     _save_json(variants, output_root / "strategy_variants.json")
 
-    experiment_name = f"execution_grid_{config.name}"
+    experiment_name = f"backtest_search_{config.name}"
     results: List[Dict[str, Any]] = []
 
     for index, variant in enumerate(variants, start=1):
-        variant_profile = _build_variant_profile(base_profile, variant)
         variant_slug = _variant_slug(variant)
-        LOGGER.info(
-            "[%d/%d] Backtest %s",
-            index,
-            len(variants),
-            variant_slug,
-        )
-        port_config = _dynamic_port_config(variant_profile, task_cfg, effective_end)
+        LOGGER.info("[%d/%d] Backtest %s", index, len(variants), variant_slug)
+        port_config = _build_port_config(config, task_cfg, effective_end, variant)
         strategy_kwargs = port_config["strategy"]["kwargs"]
         strategy_kwargs.pop("model", None)
         strategy_kwargs.pop("dataset", None)
@@ -375,23 +448,23 @@ def run_execution_grid(config: ExecutionGridConfig) -> Dict[str, Any]:
         with R.start(experiment_name=experiment_name):
             current_recorder = R.get_recorder()
             current_recorder.set_tags(
-                grid_name=config.name,
+                search_name=config.name,
                 variant_slug=variant_slug,
                 requested_target_date=target_date.strftime("%Y-%m-%d"),
             )
             current_recorder.log_params(
-                combo=base_profile.combo,
-                train_experiment=base_profile.train_experiment,
-                train_recorder_id=base_profile.train_recorder_id,
-                backtest_start=variant_profile.backtest_start,
+                combo=config.combo,
+                train_experiment=config.train_experiment,
+                train_recorder_id=config.train_recorder_id,
+                backtest_start=config.backtest_start,
                 effective_end=effective_end.strftime("%Y-%m-%d"),
-                account=variant_profile.account,
-                open_cost=variant_profile.open_cost,
-                close_cost=variant_profile.close_cost,
-                min_cost=variant_profile.min_cost,
-                odd_lot_min_cost=variant_profile.odd_lot_min_cost,
-                board_lot_size=variant_profile.board_lot_size,
-                trade_unit=variant_profile.trade_unit,
+                account=config.account,
+                open_cost=config.open_cost,
+                close_cost=config.close_cost,
+                min_cost=config.min_cost,
+                odd_lot_min_cost=config.odd_lot_min_cost,
+                board_lot_size=config.board_lot_size,
+                trade_unit=config.trade_unit,
                 **variant,
             )
             current_recorder.save_objects(**{"pred.pkl": pred_df, "label.pkl": label_df})
@@ -417,19 +490,20 @@ def run_execution_grid(config: ExecutionGridConfig) -> Dict[str, Any]:
 
     _ensure_no_active_mlflow_run()
     results = _sort_results(results, config.ranking_metric, minimize=config.minimize_metric)
-    _save_rows_csv(results, output_root / "grid_results_ranked.csv")
-    _save_json(results, output_root / "grid_results_ranked.json")
+    _save_rows_csv(results, output_root / "backtest_search_results.csv")
+    _save_json(results, output_root / "backtest_search_results.json")
 
     if not results:
-        raise RuntimeError("No execution-grid results were produced")
+        raise RuntimeError("No backtest-search results were produced")
 
     best_result = results[0]
-    best_profile = _build_variant_profile(base_profile, best_result["strategy_params"])
     _save_json(best_result, output_root / "best_result.json")
-    _save_json(_profile_payload(best_profile), output_root / "best_paper_profile.json")
     _save_json(
         {
             "name": config.name,
+            "combo": config.combo,
+            "train_experiment": config.train_experiment,
+            "train_recorder_id": config.train_recorder_id,
             "target_date": target_date.strftime("%Y-%m-%d"),
             "effective_end": effective_end.strftime("%Y-%m-%d"),
             "active_provider_uri": str(active_provider_uri),
@@ -440,10 +514,9 @@ def run_execution_grid(config: ExecutionGridConfig) -> Dict[str, Any]:
             "best_strategy_params": best_result["strategy_params"],
             "best_summary_metrics": best_result["summary_metrics"],
         },
-        output_root / "scan_summary.json",
+        output_root / "backtest_search_summary.json",
     )
     return {
         "output_root": output_root,
         "best_result": best_result,
-        "best_profile": best_profile,
     }

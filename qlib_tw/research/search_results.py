@@ -12,10 +12,15 @@ def load_search_result_row(csv_path: str | Path, run_index: int) -> pd.Series:
         raise FileNotFoundError(f"Search results CSV not found: {csv_path}")
 
     df = pd.read_csv(csv_path)
-    if "run_index" not in df.columns:
+    index_column = None
+    if "run_index" in df.columns:
+        index_column = "run_index"
+    elif "trial_index" in df.columns:
+        index_column = "trial_index"
+    if index_column is None:
         raise ValueError(f"CSV does not contain run_index column: {csv_path}")
 
-    matched = df[df["run_index"] == run_index]
+    matched = df[df[index_column] == run_index]
     if matched.empty:
         raise ValueError(f"run_index={run_index} not found in {csv_path}")
     if len(matched) > 1:
@@ -26,9 +31,13 @@ def load_search_result_row(csv_path: str | Path, run_index: int) -> pd.Series:
 def extract_model_kwargs(row: pd.Series, allowed_keys: Iterable[str]) -> Dict[str, object]:
     overrides: Dict[str, object] = {}
     for key in allowed_keys:
-        if key not in row.index:
+        value = None
+        if key in row.index:
+            value = row[key]
+        elif f"model_params.{key}" in row.index:
+            value = row[f"model_params.{key}"]
+        else:
             continue
-        value = row[key]
         if pd.isna(value):
             continue
         if hasattr(value, "item"):

@@ -12,7 +12,8 @@ Module map:
 - `settings.py` - shared provider, segments, costs, and combo definitions
 - `builders.py` - task, strategy, executor, and exchange config builders
 - `runner.py` - Qlib init, training, and backtest orchestration helpers
-- `search.py` - search pipeline entry logic
+- `search.py` - model-search pipeline entry logic
+- `backtest_search.py` - backtest-parameter search for a fixed trained model
 - `reports.py` - report export helpers
 - `publish.py` - best-run promotion/export helpers
 - `paths.py` / `search_results.py` / `ic.py` - support utilities

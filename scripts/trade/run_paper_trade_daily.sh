@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 PYTHON_BIN="${PAPER_TRADE_PYTHON:-$ROOT_DIR/.venv/bin/python}"
-CONFIG_PATH="${PAPER_TRADE_CONFIG:-$ROOT_DIR/configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json}"
+CONFIG_PATH="${PAPER_TRADE_CONFIG:-$ROOT_DIR/configs/trade/paper_trading.alpha158_lgb_tplus.example.json}"
 LOG_DIR="${PAPER_TRADE_LOG_DIR:-$ROOT_DIR/outputs/paper_trading/_scheduler_logs}"
 RUN_LABEL="${PAPER_TRADE_RUN_LABEL:-paper_trade_daily}"
 LOCK_FILE="${PAPER_TRADE_LOCK_FILE:-$LOG_DIR/${RUN_LABEL}.lock}"

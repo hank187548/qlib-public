@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Search model params, backtest top candidates, optionally promote best run."""
+"""Model search entrypoint: IC-screen model params and export the highest-ranked candidates."""
 
 from __future__ import annotations
 

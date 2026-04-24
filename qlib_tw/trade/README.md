@@ -83,7 +83,7 @@ Files:
 
 Use a separate JSON config, for example:
 
-- [configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json](/home/nas2/Personal/Hank/qlib-public/configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json)
+- [configs/trade/paper_trading.alpha158_lgb_tplus.example.json](/home/nas2/Personal/Hank/qlib-public/configs/trade/paper_trading.alpha158_lgb_tplus.example.json)
 
 ## Entry Point
 
@@ -91,7 +91,7 @@ Run the daily replay with:
 
 ```bash
 ./.venv/bin/python scripts/trade/paper_trade_daily.py \
-  --config configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json \
+  --config configs/trade/paper_trading.alpha158_lgb_tplus.example.json \
   --target-date 2026-04-09
 ```
 
@@ -105,7 +105,7 @@ bash scripts/trade/run_paper_trade_daily.sh
 
 It uses:
 
-- `configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json` by default
+- `configs/trade/paper_trading.alpha158_lgb_tplus.example.json` by default
 - `.venv/bin/python` by default
 - `outputs/paper_trading/_scheduler_logs/` for daily logs
 - `flock` when available to prevent overlapping runs

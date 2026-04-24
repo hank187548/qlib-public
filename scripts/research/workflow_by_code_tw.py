@@ -30,7 +30,7 @@ def _add_combo_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Optional runtime name for experiment/output folders. Supports a single combo only.",
     )
-    parser.add_argument("--from-search", type=Path, default=None, help="Load model params from an auto search results CSV")
+    parser.add_argument("--from-search", type=Path, default=None, help="Load model params from a model-search results CSV")
     parser.add_argument("--run-index", type=int, default=None, help="Select a specific run_index from --from-search")
 
 

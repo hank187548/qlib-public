@@ -14,11 +14,11 @@ This is the canonical working repository. Keep local-only assets here and stop e
 
 - `qlib_tw/` - all importable core logic
 - `qlib_tw/research/` - reusable research and backtest modules
-- `qlib_tw/trade/` - reusable paper-trading and execution modules
+- `qlib_tw/trade/` - reusable paper-trading and broker/exchange modules
 - `scripts/research/` - research CLI entrypoints
 - `scripts/trade/` - trade CLI entrypoints
 - `configs/research/` - research/search configs
-- `configs/trade/` - trading/execution configs
+- `configs/trade/` - paper-trading configs
 
 If you want to change core behavior, go to `qlib_tw/`.
 If you want to change command-line behavior, go to `scripts/`.
@@ -27,8 +27,8 @@ If you want to change command-line behavior, go to `scripts/`.
 
 | Item | Value |
 |---|---:|
-| Model combo | `alpha158_lgb_run11` |
-| Search source | `outputs/auto_search_alpha158_lgb/results.csv`, `run_index=11` |
+| Model combo | `alpha158_lgb` |
+| Search source | `outputs/model_search/<run-tag>/model_search_results.csv`, `run_index=<n>` |
 | Best strategy | `bucket`, `topk=10`, `n_drop=1` |
 | Universe size | `1085` |
 | Backtest period | `2025-07-01 ~ 2026-04-09` |
@@ -39,7 +39,7 @@ If you want to change command-line behavior, go to `scripts/`.
 | Max drawdown (with cost) | `-0.285515` |
 
 Reference files:
-- [outputs/auto_pipeline/run11_strategy_grid_20260410/grid_results_ranked.csv](outputs/auto_pipeline/run11_strategy_grid_20260410/grid_results_ranked.csv)
+- `outputs/backtest_search/<run-tag>/backtest_search_results.csv`
 - `outputs/backtest/<run-name>/reports/summary.txt`
 
 ## Published Snapshot
@@ -96,10 +96,12 @@ pip install pyqlib lightgbm xgboost catboost pandas numpy matplotlib plotly
 ### 1) Train model only
 
 Model-side outputs are written to `outputs/models/<run-name>/`.
+Each run also writes `outputs/models/<run-name>/train_metadata.json` with
+`train_experiment` and `train_recorder_id` for later backtest search / paper trading.
 
 ```bash
 python3 scripts/research/workflow_by_code_tw.py train \
-  --combo alpha158_lgb_run11
+  --combo alpha158_lgb
 ```
 
 ### 2) Backtest one trained model
@@ -108,7 +110,7 @@ Backtest-side outputs are written to `outputs/backtest/<run-name>/`.
 
 ```bash
 python3 scripts/research/workflow_by_code_tw.py backtest \
-  --combo alpha158_lgb_run11 \
+  --combo alpha158_lgb \
   --n-drop 1 \
   --topk 10 \
   --strategy bucket
@@ -119,12 +121,12 @@ python3 scripts/research/workflow_by_code_tw.py backtest \
 ```bash
 python3 scripts/research/workflow_by_code_tw.py full \
   --combo alpha158_lgb \
-  --from-search outputs/auto_search_alpha158_lgb/results.csv \
-  --run-index 11 \
+  --from-search outputs/model_search/<run-tag>/model_search_results.csv \
+  --run-index 1 \
   --n-drop 1 \
   --topk 10 \
   --strategy bucket \
-  --run-name alpha158_lgb_searchrun11
+  --run-name alpha158_lgb_searchrun01
 ```
 
 ### 4) Promote one local backtest run into the tracked public snapshot
@@ -134,22 +136,38 @@ python3 scripts/research/workflow_by_code_tw.py full \
 `outputs/best_run/` is the tracked public snapshot used by this repo.
 
 ```bash
-python3 scripts/research/promote_best_run.py --combo alpha158_lgb_run11_scanbest_bucket_topk10_ndrop1 --clean
+python3 scripts/research/promote_best_run.py --combo <your-backtest-run-name> --clean
 ```
 
 This copies `reports/` and `figures/` into `outputs/best_run/` and translates known `summary.txt` labels to English by default.
 
-### 5) Random search helper
+### 5) Model search
 
 ```bash
-python3 scripts/research/auto_train_ic_search.py --combo alpha158_lgb --trials 20 --segment valid
+.venv/bin/python scripts/research/model_search.py --combo alpha158_lgb --n-trials 20
 ```
 
-Pipeline config example:
+Model-search config example:
 
 ```bash
-python3 scripts/research/auto_search_pipeline.py --config configs/research/auto_search_pipeline.example.json
+.venv/bin/python scripts/research/model_search.py --config configs/research/model_search.example.json
 ```
+
+`model_search` only ranks model configurations by model-side metrics such as `ic_mean` and `ic_ir`.
+
+### 6) Backtest search
+
+Use one trained model and search only strategy / backtest parameters.
+The trained model is specified either by:
+- `train_experiment` + `train_recorder_id`
+- or `train_metadata` pointing to `outputs/models/<run-name>/train_metadata.json`
+
+```bash
+.venv/bin/python scripts/research/backtest_search.py \
+  --config configs/research/backtest_search.example.json
+```
+
+`backtest_search` does not retrain the model. It fixes one trained model and ranks only strategy / execution variants.
 
 ## Order Execution Scripts
 
@@ -193,7 +211,7 @@ Paper trading replay:
 
 ```bash
 python3 scripts/trade/paper_trade_daily.py \
-  --config configs/trade/paper_trading.alpha158_lgb_run11_tplus.example.json \
+  --config configs/trade/paper_trading.alpha158_lgb_tplus.example.json \
   --target-date 2026-04-11
 ```
 
@@ -228,17 +246,10 @@ Recommended pattern:
 - Run once before market open to refresh the preview order list.
 - Run once after market close to refresh actual simulated fills and account state.
 
-Execution grid search:
-
-```bash
-python3 scripts/trade/execution_grid_search.py \
-  --config configs/trade/execution_grid.alpha158_lgb_run11_1m_tplus.json
-```
-
 ## Repository Structure
 
 - `qlib_tw/` - importable core package
-- `configs/research/` - research/search configs
+- `configs/research/` - model-search and backtest-search configs
 - `configs/trade/` - trade/paper-trading configs
 - `scripts/research/` - research CLI entrypoints
 - `scripts/trade/` - trade CLI entrypoints
