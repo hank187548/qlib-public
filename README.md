@@ -1,86 +1,71 @@
 # Qlib TW Workflow
 
-Production-style Taiwan equity workflow built on Qlib.
+This repository contains the Taiwan equity research and trading workflow built on Qlib.
 
-This repository contains:
-- data pipeline and feature handlers
-- model training and backtesting scripts
-- full best-run dashboard artifacts
-- order preparation and broker submission scripts (environment-variable credentials only)
+The project is now organized into three layers:
 
-This is the canonical working repository. Keep local-only assets here and stop editing the older private workspace once migration is complete.
+1. `research`
+   - data processing
+   - model training
+   - backtesting
+   - model search
+   - backtest search
+2. `trade`
+   - paper trading
+   - replay
+   - broker / order preparation
+3. `outputs`
+   - train, backtest, search, and paper-trading results
 
-## Repo Layout
+If you are working on research only, focus on:
+- `qlib_tw/research/`
+- `scripts/research/`
+- `configs/research/`
 
-- `qlib_tw/` - all importable core logic
-- `qlib_tw/research/` - reusable research and backtest modules
-- `qlib_tw/trade/` - reusable paper-trading and broker/exchange modules
-- `scripts/research/` - research CLI entrypoints
-- `scripts/trade/` - trade CLI entrypoints
-- `configs/research/` - research/search configs
-- `configs/trade/` - paper-trading configs
+## Main Pipeline
 
-If you want to change core behavior, go to `qlib_tw/`.
-If you want to change command-line behavior, go to `scripts/`.
+The current main pipeline is:
 
-## Current Recommended Configuration
+`Raw_data -> Process_data -> qlib_data -> Alpha158/Alpha360 -> DatasetH -> model -> strategy -> TWExchange -> reports`
 
-| Item | Value |
-|---|---:|
-| Model combo | `alpha158_lgb` |
-| Search source | `outputs/model_search/<run-tag>/model_search_results.csv`, `run_index=<n>` |
-| Best strategy | `bucket`, `topk=10`, `n_drop=1` |
-| Universe size | `1085` |
-| Backtest period | `2025-07-01 ~ 2026-04-09` |
-| Strategy cumulative return | `74.2571%` |
-| Benchmark cumulative return | `56.6371%` |
-| Annualized return (with cost) | `0.075833` |
-| Information ratio (with cost) | `0.307939` |
-| Max drawdown (with cost) | `-0.285515` |
+Data semantics:
+- `Data/Raw_data/`: raw downloaded data
+- `Data/Process_data/`: intermediate processed data for debugging
+- `Data/qlib_data/`: Qlib provider
 
-Reference files:
-- `outputs/backtest_search/<run-tag>/backtest_search_results.csv`
-- `outputs/backtest/<run-name>/reports/summary.txt`
+The provider is an **adjusted-price provider**:
+- `$open/$high/$low/$close/$vwap` are already adjusted
+- `$factor` is treated as a price-only factor and is not used for share rounding
 
-## Published Snapshot
+## Repository Layout
 
-`outputs/best_run/` is the tracked public snapshot currently bundled in the repository.
-If you want the dashboard artifacts below to match the latest research result, promote your chosen local run into `outputs/best_run/` first.
+- `qlib_tw/research/`
+  - reusable research and backtest logic
+- `qlib_tw/trade/`
+  - paper trading, replay, exchange, and broker logic
+- `scripts/research/`
+  - research CLI entrypoints
+- `scripts/trade/`
+  - trade CLI entrypoints
+- `configs/research/`
+  - `model_search` and `backtest_search` configs
+- `configs/trade/`
+  - paper-trading configs
 
-## Dashboard
+## Canonical Combos
 
-Tracked public dashboard bundle is fully included under:
-- `outputs/best_run/figures/`
+The research layer now keeps only these canonical combos:
 
-Key diagnostics:
-- [equity_curve.png](outputs/best_run/figures/equity_curve.png): Strategy vs benchmark
-- [daily_ic.png](outputs/best_run/figures/daily_ic.png): Daily information coefficient
-- [turnover.png](outputs/best_run/figures/turnover.png): Daily turnover
-- [model_performance_6.html](outputs/best_run/figures/model_performance_6.html): Model performance view
+- `alpha158_lgb`
+- `alpha158_xgb`
+- `alpha158_cat`
+- `alpha360_lgb`
+- `alpha360_xgb`
+- `alpha360_cat`
 
-![Equity Curve](outputs/best_run/figures/equity_curve.png)
-![Daily IC](outputs/best_run/figures/daily_ic.png)
-![Turnover](outputs/best_run/figures/turnover.png)
+If you want the most stable starting point, use:
 
-Interactive dashboard files:
-- [analysis_dashboard.html](outputs/best_run/figures/analysis_dashboard.html)
-- [model_performance.html](outputs/best_run/figures/model_performance.html)
-
-## Reports
-
-Tracked public reports are in `outputs/best_run/reports/`.
-
-| File | Purpose |
-|---|---|
-| `summary.txt` | Final backtest summary |
-| `report_normal_1day.csv` | Daily portfolio record |
-| `port_analysis_1day.csv` | Portfolio risk/return metrics |
-| `positions_weight.csv` | Daily position weights |
-| `indicator_analysis_1day.csv` | Indicator summary |
-| `indicators_normal_1day.csv` | Daily indicator table |
-| `turnover_count.csv` | Count of changed instruments by day |
-| `pred_label.csv` | Score-label panel |
-| `daily_ic.csv` | Daily IC series |
+- `alpha158_lgb`
 
 ## Setup
 
@@ -91,123 +76,168 @@ pip install --upgrade pip
 pip install pyqlib lightgbm xgboost catboost pandas numpy matplotlib plotly
 ```
 
-## Workflow Commands
+## Research Workflow
 
-### 1) Train model only
+### 1. Train a model
 
-Model-side outputs are written to `outputs/models/<run-name>/`.
-Each run also writes `outputs/models/<run-name>/train_metadata.json` with
-`train_experiment` and `train_recorder_id` for later backtest search / paper trading.
+This trains a model only. It does not run a strategy backtest.
 
 ```bash
-python3 scripts/research/workflow_by_code_tw.py train \
-  --combo alpha158_lgb
+.venv/bin/python scripts/research/workflow_by_code_tw.py train --combo alpha158_lgb
 ```
 
-### 2) Backtest one trained model
+Outputs are written to:
 
-Backtest-side outputs are written to `outputs/backtest/<run-name>/`.
+- `outputs/models/alpha158_lgb/`
+
+Important files:
+- `outputs/models/alpha158_lgb/train_metadata.json`
+  - used by `backtest_search` and later by paper trading
+- `outputs/models/alpha158_lgb/reports/summary.txt`
+- `outputs/models/alpha158_lgb/reports/daily_ic.csv`
+- `outputs/models/alpha158_lgb/figures/model_performance.html`
+
+### 2. Run one backtest
+
+If you want to test one specific strategy setup:
 
 ```bash
-python3 scripts/research/workflow_by_code_tw.py backtest \
+.venv/bin/python scripts/research/workflow_by_code_tw.py backtest \
   --combo alpha158_lgb \
-  --n-drop 1 \
-  --topk 10 \
-  --strategy bucket
-```
-
-### 3) End-to-end run directly from search results
-
-```bash
-python3 scripts/research/workflow_by_code_tw.py full \
-  --combo alpha158_lgb \
-  --from-search outputs/model_search/<run-tag>/model_search_results.csv \
-  --run-index 1 \
-  --n-drop 1 \
-  --topk 10 \
   --strategy bucket \
-  --run-name alpha158_lgb_searchrun01
+  --topk 10 \
+  --n-drop 1
 ```
 
-### 4) Promote one local backtest run into the tracked public snapshot
+Outputs are written to:
 
-`outputs/models/` stores train-only diagnostics and is git-ignored.
-`outputs/backtest/` stores local backtest outputs and is git-ignored.
-`outputs/best_run/` is the tracked public snapshot used by this repo.
+- `outputs/backtest/<run-name>/`
+
+### 3. Run end-to-end
+
+If you want one command that trains and backtests:
 
 ```bash
-python3 scripts/research/promote_best_run.py --combo <your-backtest-run-name> --clean
+.venv/bin/python scripts/research/workflow_by_code_tw.py full \
+  --combo alpha158_lgb \
+  --strategy bucket \
+  --topk 10 \
+  --n-drop 1
 ```
 
-This copies `reports/` and `figures/` into `outputs/best_run/` and translates known `summary.txt` labels to English by default.
+## Search Workflow
 
-### 5) Model search
+Search is now split into two clearly separated stages.
+
+### A. Model Search
+
+Purpose:
+- keep the combo fixed
+- search model hyperparameters
+- rank by `ic_mean / ic_ir`
+- **do not run backtests**
+
+Run:
 
 ```bash
-.venv/bin/python scripts/research/model_search.py --combo alpha158_lgb --n-trials 20
+.venv/bin/python scripts/research/model_search.py \
+  --config configs/research/model_search.example.json
 ```
 
-Model-search config example:
+Outputs are written to:
+
+- `outputs/model_search/<run-tag>/`
+
+Important files:
+- `model_search_results.csv`
+- `top_model_candidates.csv`
+- `best_model.json`
+
+### B. Backtest Search
+
+Purpose:
+- fix one already trained model
+- search strategy / backtest parameters
+- rank by backtest performance
+
+First train a model:
 
 ```bash
-.venv/bin/python scripts/research/model_search.py --config configs/research/model_search.example.json
+.venv/bin/python scripts/research/workflow_by_code_tw.py train --combo alpha158_lgb
 ```
 
-`model_search` only ranks model configurations by model-side metrics such as `ic_mean` and `ic_ir`.
-
-### 6) Backtest search
-
-Use one trained model and search only strategy / backtest parameters.
-The trained model is specified either by:
-- `train_experiment` + `train_recorder_id`
-- or `train_metadata` pointing to `outputs/models/<run-name>/train_metadata.json`
+Then run:
 
 ```bash
 .venv/bin/python scripts/research/backtest_search.py \
   --config configs/research/backtest_search.example.json
 ```
 
-`backtest_search` does not retrain the model. It fixes one trained model and ranks only strategy / execution variants.
+The default config reads:
 
-## Order Execution Scripts
+- `outputs/models/alpha158_lgb/train_metadata.json`
 
-Included scripts:
-- `scripts/trade/predict_and_prepare_orders.py`
-- `scripts/trade/place_orders_from_csv.py`
-- `scripts/trade/masterlink_trade.py`
-- `scripts/trade/test_masterlink_sdk.py`
+So if you want to use another model, change:
 
-Create local env file:
+- `train_metadata`
+
+inside:
+
+- `configs/research/backtest_search.example.json`
+
+Outputs are written to:
+
+- `outputs/backtest_search/alpha158_lgb_backtest_search/`
+
+Important files:
+- `backtest_search_results.csv`
+- `best_result.json`
+- `strategy_variants.json`
+- `resolved_config.json`
+
+## Output Layout
+
+The main output folders are:
+
+- `outputs/models/`
+  - train-only diagnostics
+  - IC and model-performance outputs
+  - `train_metadata.json`
+- `outputs/backtest/`
+  - one-off backtest outputs
+- `outputs/model_search/`
+  - model-search outputs
+- `outputs/backtest_search/`
+  - strategy / backtest-search outputs
+- `outputs/paper_trading/`
+  - paper-trading and replay outputs
+- `outputs/best_run/`
+  - tracked public snapshot stored in the repo
+
+## Promote a Backtest Run
+
+If you want to copy one local backtest result into the tracked public snapshot:
 
 ```bash
-cp .env.example .env.local
+python3 scripts/research/promote_best_run.py --combo <your-backtest-run-name> --clean
 ```
 
-Required variables:
-- `MASTERLINK_ID`
-- `MASTERLINK_PASSWORD`
-- `MASTERLINK_CERT`
-- `MASTERLINK_CERT_PASSWORD`
+This copies:
+- `reports/`
+- `figures/`
 
-Generate order list from model:
+into:
+- `outputs/best_run/`
 
-```bash
-python3 scripts/trade/predict_and_prepare_orders.py --combo alpha158_lgb --topk 50 --strategy bucket
-```
+## Paper Trading
 
-Dry-run place orders from CSV:
+This was not the main target of the current refactor, but the entrypoints are already organized.
 
-```bash
-python3 scripts/trade/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv
-```
+Example config:
 
-Live place orders:
+- `configs/trade/paper_trading.alpha158_lgb_tplus.example.json`
 
-```bash
-python3 scripts/trade/place_orders_from_csv.py outputs/live_orders/orders_alpha158_lgb_YYYY-MM-DD.csv --live
-```
-
-Paper trading replay:
+Run one paper-trading replay manually:
 
 ```bash
 python3 scripts/trade/paper_trade_daily.py \
@@ -215,51 +245,48 @@ python3 scripts/trade/paper_trade_daily.py \
   --target-date 2026-04-11
 ```
 
-Paper trading scheduler wrapper:
+Scheduler wrapper:
 
 ```bash
 bash scripts/trade/run_paper_trade_daily.sh
 ```
 
-Container-friendly long-running scheduler:
+## Quick Guide
 
-```bash
-nohup bash scripts/trade/run_paper_trade_scheduler.sh >/dev/null 2>&1 &
-```
+### I want to find a better model
 
-This checks Taipei time continuously and triggers the paper-trading wrapper at `08:30` and `20:00`.
+Use:
 
-Cron example:
+- `scripts/research/model_search.py`
 
-```bash
-crontab -e
-```
+### I already chose a model and want to search strategy settings
 
-Then paste the line from:
+Use:
 
-```text
-configs/trade/paper_trade_daily.crontab.example
-```
+- `scripts/research/backtest_search.py`
 
-Recommended pattern:
+### I just want to train one model quickly
 
-- Run once before market open to refresh the preview order list.
-- Run once after market close to refresh actual simulated fills and account state.
+Use:
 
-## Repository Structure
+- `scripts/research/workflow_by_code_tw.py train`
 
-- `qlib_tw/` - importable core package
-- `configs/research/` - model-search and backtest-search configs
-- `configs/trade/` - trade/paper-trading configs
-- `scripts/research/` - research CLI entrypoints
-- `scripts/trade/` - trade CLI entrypoints
-- `outputs/models/` - train-only diagnostics, intentionally ignored
-- `outputs/backtest/` - local backtest outputs, intentionally ignored
-- `outputs/best_run/` - exported best-run reports and dashboards
-- `Data/`, `mlruns/`, `catboost_info/`, `third_party/`, `secrets/`, `log/` - local workspace assets, intentionally ignored
+### I just want to test one strategy setup quickly
 
-## Security
+Use:
 
-- No real account, password, token, or certificate is stored in this repository.
-- `.env`, secret files, and certificate file types are blocked by `.gitignore`.
-- Rotate credentials immediately if previously exposed.
+- `scripts/research/workflow_by_code_tw.py backtest`
+
+## What Is Still Left
+
+The research mainline is basically complete.
+
+The main areas that can still be cleaned up later are:
+- paper trading
+- replay
+- broker integration
+- additional trade-layer config and docs cleanup
+
+If you are only doing research, you can treat this repository as:
+
+**research is stable; the trade layer is the remaining cleanup area.**
