@@ -20,6 +20,13 @@ import matplotlib.pyplot as plt
 
 LOGGER = logging.getLogger("qlib_tw.research.reports")
 
+PLOTLY_DASHBOARD_SECTION_ORDER = {
+    "report_graph": 0,
+    "risk_analysis": 1,
+    "score_ic": 2,
+    "model_performance": 3,
+}
+
 
 def _to_plotly_figures(obj) -> list:
     figures = []
@@ -104,6 +111,14 @@ def export_plotly_dashboard(paths: WorkflowPaths, sections: list) -> None:
     html_parts.append("</body></html>")
     dashboard_path.write_text("\n".join(html_parts), encoding="utf-8")
     LOGGER.info("Saved combined Plotly dashboard: %s", dashboard_path)
+
+
+def _ordered_plotly_sections(sections: list) -> list:
+    fallback_order = len(PLOTLY_DASHBOARD_SECTION_ORDER)
+    return sorted(
+        sections,
+        key=lambda item: PLOTLY_DASHBOARD_SECTION_ORDER.get(item[0], fallback_order),
+    )
 
 
 def save_figure(fig, path: Path) -> None:
@@ -205,7 +220,7 @@ def _save_plotly_sections(paths: WorkflowPaths, plotly_sections: list) -> None:
         saved_entries = export_plotly_section(paths, name, section)
         if saved_entries:
             plotly_saved.append((name, saved_entries))
-    export_plotly_dashboard(paths, plotly_saved)
+    export_plotly_dashboard(paths, _ordered_plotly_sections(plotly_saved))
 
 
 def dump_model_frames(
