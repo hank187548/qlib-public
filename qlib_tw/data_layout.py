@@ -11,6 +11,7 @@ DATA_DIR = WORK_DIR / "Data"
 RAW_DATA_DIR = DATA_DIR / "Raw_data"
 PROCESS_DATA_DIR = DATA_DIR / "Process_data"
 QLIB_DATA_DIR = DATA_DIR / "qlib_data"
+ALPHA158_CACHE_DIR = DATA_DIR / "alpha_158_data"
 
 PRICE_SEMANTICS_FILE = "price_semantics.json"
 PRICE_BASIS_ADJUSTED = "adjusted"

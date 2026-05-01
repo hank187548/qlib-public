@@ -78,6 +78,21 @@ pip install pyqlib lightgbm xgboost catboost pandas numpy matplotlib plotly
 
 ## Research Workflow
 
+### 0. Build Alpha158 cache
+
+The `alpha158_*` combos read a precomputed Alpha158 cache from `Data/alpha_158_data`.
+Rebuild it after updating `Data/qlib_data` or changing the Alpha158 date range.
+
+```bash
+.venv/bin/python scripts/research/build_alpha158_cache.py
+```
+
+The cache stores cleaned Alpha158 features and labels:
+
+- `Data/alpha_158_data/alpha158_feature.parquet`
+- `Data/alpha_158_data/alpha158_label.parquet`
+- `Data/alpha_158_data/metadata.json`
+
 ### 1. Train a model
 
 This trains a model only. It does not run a strategy backtest.

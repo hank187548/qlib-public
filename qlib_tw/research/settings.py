@@ -76,7 +76,7 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
 }
 
 HANDLER_CONFIGS: Dict[str, Dict[str, str]] = {
-    "alpha158": {"class": "Alpha158", "module_path": "qlib.contrib.data.handler"},
+    "alpha158": {"class": "CachedAlpha158", "module_path": "qlib_tw.research.handlers"},
     "alpha360": {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"},
 }
 
