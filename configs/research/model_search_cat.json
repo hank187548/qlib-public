@@ -1,0 +1,21 @@
+{
+  "combo": "alpha158_cat",
+  "n_trials": 20,
+  "top_n": 20,
+  "seed": 20260501,
+  "run_tag": "alpha158_cat_modelsearch_20",
+  "screen_segment": "valid",
+  "screen_ranking_metric": "ic_mean",
+  "model_search_space": {
+    "learning_rate": [0.01, 0.02, 0.03, 0.05],
+    "depth": [6, 8, 10],
+    "l2_leaf_reg": [1.0, 3.0, 5.0, 7.0],
+    "subsample": [0.7, 0.8, 0.9],
+    "random_strength": [0.5, 0.8, 1.0],
+    "iterations": [500, 800, 1000],
+    "leaf_estimation_iterations": [2, 5, 8],
+    "bootstrap_type": ["Bernoulli"],
+    "task_type": ["CPU"],
+    "thread_count": [4]
+  }
+}
