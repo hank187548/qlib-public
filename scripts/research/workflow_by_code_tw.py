@@ -14,6 +14,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from qlib_tw.research.runner import backtest_combo, init_qlib, train_combo
+from qlib_tw.research.builders import MODEL_FIT_KWARG_KEYS
 from qlib_tw.research.search_results import extract_model_kwargs, load_search_result_row
 from qlib_tw.research.settings import COMBO_CONFIGS, MODEL_CONFIGS, combo_choices, resolve_combos
 
@@ -98,7 +99,7 @@ def _resolve_runtime_specs(args: argparse.Namespace, *, include_search_params: b
         spec = COMBO_CONFIGS[combo_names[0]]
         model_kwargs_override = None
         if include_search_params:
-            allowed_keys = MODEL_CONFIGS[spec["model"]]["kwargs"].keys()
+            allowed_keys = set(MODEL_CONFIGS[spec["model"]]["kwargs"].keys()) | MODEL_FIT_KWARG_KEYS
             model_kwargs_override = extract_model_kwargs(search_row, allowed_keys)
         return [
             {

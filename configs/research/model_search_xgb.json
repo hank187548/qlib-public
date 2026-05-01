@@ -9,7 +9,7 @@
   "model_search_space": {
     "eta": [0.01, 0.02, 0.04, 0.06],
     "max_depth": [4, 5, 6, 8],
-    "n_estimators": [300, 500, 700, 900],
+    "num_boost_round": [300, 500, 700, 900],
     "colsample_bytree": [0.6, 0.8, 0.9],
     "subsample": [0.7, 0.8, 0.9],
     "nthread": [8]

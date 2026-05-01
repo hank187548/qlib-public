@@ -134,7 +134,7 @@ def train_combo(
     LOGGER.info("Start model training - experiment %s", train_exp)
     with R.start(experiment_name=train_exp):
         R.log_params(**flatten_dict(task_config))
-        model.fit(dataset)
+        model.fit(dataset, **task_config.get("model_fit_kwargs", {}))
         R.save_objects(trained_model=model)
         signal_rec = SignalRecord(model, dataset, R.get_recorder())
         signal_rec.generate()

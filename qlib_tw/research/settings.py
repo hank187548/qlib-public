@@ -51,7 +51,6 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
             "colsample_bytree": 0.8879,
             "eta": 0.0421,
             "max_depth": 8,
-            "n_estimators": 647,
             "subsample": 0.8789,
             "nthread": os.cpu_count() or 8,
         },

@@ -12,6 +12,18 @@ from qlib_tw.research.settings import (
 )
 
 
+MODEL_FIT_KWARG_KEYS = {"num_boost_round"}
+
+
+def split_model_fit_kwargs(model_kwargs: Dict[str, object] | None) -> tuple[Dict[str, object], Dict[str, object]]:
+    model_kwargs = deepcopy(model_kwargs or {})
+    fit_kwargs = {}
+    for key in list(model_kwargs):
+        if key in MODEL_FIT_KWARG_KEYS:
+            fit_kwargs[key] = model_kwargs.pop(key)
+    return model_kwargs, fit_kwargs
+
+
 def build_task_config(
     handler_key: str,
     model_key: str,
@@ -22,8 +34,10 @@ def build_task_config(
 ) -> Dict[str, object]:
     handler_spec = HANDLER_CONFIGS[handler_key]
     model_spec = deepcopy(MODEL_CONFIGS[model_key])
+    model_fit_kwargs = {}
     if model_kwargs_override:
-        model_spec["kwargs"].update(deepcopy(model_kwargs_override))
+        model_kwargs, model_fit_kwargs = split_model_fit_kwargs(model_kwargs_override)
+        model_spec["kwargs"].update(model_kwargs)
     handler_kwargs = deepcopy(BASE_DATA_HANDLER_CONFIG)
     selected_instruments = instruments if max_instruments is None else instruments[:max_instruments]
     handler_kwargs["instruments"] = selected_instruments
@@ -41,7 +55,7 @@ def build_task_config(
             "segments": deepcopy(SEGMENTS),
         },
     }
-    return {"model": model_spec, "dataset": dataset_cfg}
+    return {"model": model_spec, "dataset": dataset_cfg, "model_fit_kwargs": model_fit_kwargs}
 
 
 def build_port_analysis_config() -> Dict[str, object]:

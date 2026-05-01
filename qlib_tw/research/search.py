@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import random
-from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -113,7 +112,7 @@ def default_model_search_space(model_key: str) -> Dict[str, List[Any]]:
         return {
             "eta": [0.02, 0.04, 0.06],
             "max_depth": [5, 6, 8],
-            "n_estimators": [300, 500, 700],
+            "num_boost_round": [300, 500, 700],
             "colsample_bytree": [0.6, 0.8, 0.9],
             "subsample": [0.7, 0.8, 0.9],
             "nthread": [screen_threads],
@@ -145,9 +144,14 @@ def generate_model_trials(space: Dict[str, List[Any]], n_trials: int, rng: rando
 
 def build_combo_task_config(combo_name: str, model_params: Dict[str, Any]) -> Dict[str, Any]:
     spec = COMBO_CONFIGS[combo_name]
-    task_cfg = build_task_config(spec["handler"], spec["model"], UNIVERSE, spec.get("max_instruments"), spec.get("infer_processors"))
-    task_cfg["model"]["kwargs"].update(deepcopy(model_params))
-    return task_cfg
+    return build_task_config(
+        spec["handler"],
+        spec["model"],
+        UNIVERSE,
+        spec.get("max_instruments"),
+        spec.get("infer_processors"),
+        model_kwargs_override=model_params,
+    )
 
 
 def flatten_row(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -186,7 +190,7 @@ def run_screen_trial(combo_name: str, model_params: Dict[str, Any], screen_segme
     model = init_instance_by_config(task_cfg["model"])
     dataset = init_instance_by_config(task_cfg["dataset"])
     try:
-        model.fit(dataset)
+        model.fit(dataset, **task_cfg.get("model_fit_kwargs", {}))
         pred = model.predict(dataset, segment=screen_segment)
         label_df = dataset.prepare(screen_segment, col_set="label")
         label_df.columns = ["label"]
@@ -205,8 +209,8 @@ def run_screen_trial(combo_name: str, model_params: Dict[str, Any], screen_segme
         "ic_std": ic_std,
         "ic_days": ic_days,
         "ic_ir": ic_ir,
-        **deepcopy(model_params),
-        "model_params": deepcopy(model_params),
+        **dict(model_params),
+        "model_params": dict(model_params),
     }
 
 
