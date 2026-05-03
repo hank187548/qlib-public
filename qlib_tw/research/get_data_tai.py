@@ -41,6 +41,7 @@ if str(ROOT_DIR) not in sys.path:
 from qlib_tw.data_layout import PROCESS_DATA_DIR, QLIB_DATA_DIR, RAW_DATA_DIR
 
 LOG = logging.getLogger("GetDataTai")
+SYMBOL_CSV_DTYPES = {"symbol": "string", "source_symbol": "string"}
 
 DEFAULT_COLLECT_CONFIG = {
     # Update these two dates to control the Yahoo download window.
@@ -340,7 +341,7 @@ def build_process_data(
 
     saved: List[Path] = []
     for csv_path in csv_files:
-        df = pd.read_csv(csv_path, parse_dates=["date"])
+        df = pd.read_csv(csv_path, parse_dates=["date"], dtype=SYMBOL_CSV_DTYPES)
         if df.empty:
             LOG.warning("Skip empty raw snapshot: %s", csv_path)
             continue
@@ -519,7 +520,7 @@ class QlibDumper:
     def _load_all_data(self) -> Dict[str, List[Dict[str, float]]]:
         data: Dict[str, List[Dict[str, float]]] = {}
         for csv_path in self.source_files:
-            df = pd.read_csv(csv_path, parse_dates=[self.date_field])
+            df = pd.read_csv(csv_path, parse_dates=[self.date_field], dtype=SYMBOL_CSV_DTYPES)
             if df.empty:
                 continue
             symbol = fname_to_code(csv_path.stem).upper()

@@ -9,7 +9,7 @@ from qlib_tw.data_layout import QLIB_DATA_DIR
 WORK_DIR = Path(__file__).resolve().parents[2]
 PROVIDER_URI = QLIB_DATA_DIR.resolve()
 REGION = "tw"
-BENCHMARK = "^TWII"
+BENCHMARK = "0050"
 DEFAULT_COMBO = "alpha158_lgb"
 
 BASE_DATA_HANDLER_CONFIG: Dict[str, object] = {
@@ -114,7 +114,7 @@ BASE_PORT_ANALYSIS_CONFIG: Dict[str, object] = {
     "backtest": {
         "start_time": SEGMENTS["test"][0],
         "end_time": SEGMENTS["test"][1],
-        "account": 100_000,
+        "account": 10_000_000,
         "benchmark": BENCHMARK,
         "exchange_kwargs": {
             "freq": "day",
