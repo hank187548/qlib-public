@@ -23,7 +23,6 @@
   "strategy_values": ["bucket", "equal"],
   "deal_price_values": ["open"],
   "rebalance_values": ["day"],
-  "risk_degree_values": [0.9, 0.95, 0.98],
   "settlement_lag_values": [2],
   "region": "tw"
 }
