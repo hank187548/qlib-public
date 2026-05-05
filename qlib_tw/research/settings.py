@@ -103,8 +103,8 @@ BASE_PORT_ANALYSIS_CONFIG: Dict[str, object] = {
         "kwargs": {
             "model": None,
             "dataset": None,
-            "topk": 50,
-            "n_drop": 5,
+            "topk": 500,
+            "n_drop": 50,
             "method_buy": "top",
             "method_sell": "bottom",
             "only_tradable": True,
