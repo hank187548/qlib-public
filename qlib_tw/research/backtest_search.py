@@ -292,6 +292,8 @@ def build_strategy_variants(config: BacktestSearchConfig) -> List[Dict[str, Any]
         risk_degree_values,
         settlement_lag_values,
     ):
+        if n_drop > topk:
+            continue
         variants.append(
             {
                 "topk": int(topk),
