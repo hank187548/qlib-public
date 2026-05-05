@@ -52,6 +52,7 @@ class PaperStateSnapshot:
     cash_delay: float
     positions: list[PositionEntry]
     pending_cash: list[PendingCashEntry]
+    pending_payable: list[PendingCashEntry]
     pending_stock: list[PendingStockEntry]
     metadata: Dict[str, object]
 
@@ -71,6 +72,14 @@ def _locked_stock_map(position) -> Dict[str, float]:
 
 def _iter_pending_cash(position) -> Iterable[PendingCashEntry]:
     for release_date, amount in getattr(position, "_pending_cash", []):
+        yield PendingCashEntry(
+            release_date=pd.Timestamp(release_date).strftime("%Y-%m-%d"),
+            amount=_as_float(amount),
+        )
+
+
+def _iter_pending_payable(position) -> Iterable[PendingCashEntry]:
+    for release_date, amount in getattr(position, "_pending_payable", []):
         yield PendingCashEntry(
             release_date=pd.Timestamp(release_date).strftime("%Y-%m-%d"),
             amount=_as_float(amount),
@@ -123,6 +132,7 @@ def snapshot_from_position(
         cash_delay=_as_float(position.position.get("cash_delay")),
         positions=position_rows,
         pending_cash=list(_iter_pending_cash(position)),
+        pending_payable=list(_iter_pending_payable(position)),
         pending_stock=list(_iter_pending_stock(position)),
         metadata=metadata,
     )
@@ -145,6 +155,7 @@ def snapshot_from_cash(
         cash_delay=0.0,
         positions=[],
         pending_cash=[],
+        pending_payable=[],
         pending_stock=[],
         metadata=metadata,
     )

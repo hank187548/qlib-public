@@ -177,6 +177,7 @@ class _CashOnlyPosition:
         self._cash = float(cash)
         self.position = {"cash": self._cash}
         self._pending_cash = []
+        self._pending_payable = []
         self._pending_stock = {}
 
     def get_stock_list(self):

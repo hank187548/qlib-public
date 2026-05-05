@@ -20,6 +20,7 @@ import pandas as pd
 
 from qlib.backtest.decision import Order, OrderDir
 from qlib.backtest.exchange import Exchange
+from qlib.data import D
 
 
 class TWExchange(Exchange):
@@ -55,10 +56,19 @@ class TWExchange(Exchange):
         self.settlement_lag = int(settlement_lag)
         self.odd_lot_min_cost = float(odd_lot_min_cost)
         self.board_lot_size = int(board_lot_size)
+        self._trade_calendar = self._load_trade_calendar()
         if self._ignored_adjust_prices_flag:
             self.logger.info(
                 "Provider core price fields are already adjusted; ignore adjust_prices_for_backtest."
             )
+
+    def _load_trade_calendar(self) -> list[pd.Timestamp]:
+        try:
+            calendar = D.calendar(freq=self.freq, future=True)
+        except Exception as err:  # pragma: no cover - defensive fallback
+            self.logger.warning("Unable to load Qlib trade calendar for settlement: %s", err)
+            return []
+        return [pd.Timestamp(dt).normalize() for dt in calendar]
 
     def get_factor(
         self,
@@ -98,6 +108,28 @@ class TWExchange(Exchange):
             odd_trade_val = trade_val * (odd_shares / raw_shares)
             total_cost += max(odd_trade_val * cost_ratio, self.odd_lot_min_cost)
         return total_cost
+
+    @staticmethod
+    def _sync_cash_delay(position) -> None:
+        receivable = sum(float(amt) for _, amt in getattr(position, "_pending_cash", []))
+        payable = sum(float(amt) for _, amt in getattr(position, "_pending_payable", []))
+        net_cash_delay = receivable - payable
+        if abs(net_cash_delay) > 1e-8:
+            position.position["cash_delay"] = net_cash_delay
+        elif "cash_delay" in position.position:
+            del position.position["cash_delay"]
+
+    @staticmethod
+    def _scheduled_cash(position, release_dt: pd.Timestamp) -> float:
+        release_dt = pd.Timestamp(release_dt).normalize()
+        cash = float(position.get_cash())
+        for rel_dt, amt in getattr(position, "_pending_cash", []):
+            if pd.Timestamp(rel_dt).normalize() <= release_dt:
+                cash += float(amt)
+        for rel_dt, amt in getattr(position, "_pending_payable", []):
+            if pd.Timestamp(rel_dt).normalize() <= release_dt:
+                cash -= float(amt)
+        return cash
 
     def _get_buy_amount_by_cash_limit(self, trade_price: float, cash: float, cost_ratio: float, factor: float | None = None) -> float:
         if trade_price <= 0 or cash <= 0:
@@ -158,7 +190,8 @@ class TWExchange(Exchange):
         elif order.direction == Order.BUY:
             cost_ratio = self.open_cost + adj_cost_ratio
             if position is not None:
-                cash = position.get_cash()
+                settle_dt = self._settle_date(order.start_time.normalize())
+                cash = self._scheduled_cash(position, settle_dt)
                 trade_val = order.deal_amount * trade_price
                 buy_trade_cost = self._calc_tw_trade_cost(
                     trade_val=trade_val,
@@ -191,18 +224,21 @@ class TWExchange(Exchange):
     def _release_pending(position, current_dt: pd.Timestamp):
         pend_cash = getattr(position, "_pending_cash", [])
         still_cash = []
-        cash_delay_total = 0.0
         for rel_dt, amt in pend_cash:
             if rel_dt <= current_dt:
                 position.position["cash"] += amt
             else:
                 still_cash.append((rel_dt, amt))
-                cash_delay_total += amt
-        if cash_delay_total > 0:
-            position.position["cash_delay"] = cash_delay_total
-        elif "cash_delay" in position.position:
-            del position.position["cash_delay"]
         position._pending_cash = still_cash
+
+        pend_payable = getattr(position, "_pending_payable", [])
+        still_payable = []
+        for rel_dt, amt in pend_payable:
+            if rel_dt <= current_dt:
+                position.position["cash"] -= amt
+            else:
+                still_payable.append((rel_dt, amt))
+        position._pending_payable = still_payable
 
         pend_stock = getattr(position, "_pending_stock", {})
         to_delete = []
@@ -218,15 +254,44 @@ class TWExchange(Exchange):
         for code in to_delete:
             del pend_stock[code]
         position._pending_stock = pend_stock
+        TWExchange._sync_cash_delay(position)
 
     def _settle_date(self, dt: pd.Timestamp) -> pd.Timestamp:
+        dt = pd.Timestamp(dt).normalize()
+        if self.settlement_lag <= 0:
+            return dt
+        if self._trade_calendar:
+            calendar = self._trade_calendar
+            idx = int(np.searchsorted(calendar, dt, side="left"))
+            if idx < len(calendar) and calendar[idx] == dt:
+                settle_idx = idx + self.settlement_lag
+            else:
+                settle_idx = idx + self.settlement_lag - 1
+            if 0 <= settle_idx < len(calendar):
+                return calendar[settle_idx]
+            self.logger.warning(
+                "Trade calendar does not extend %d sessions beyond %s; fallback to business-day settlement.",
+                self.settlement_lag,
+                dt.strftime("%Y-%m-%d"),
+            )
         return (dt + pd.tseries.offsets.BDay(self.settlement_lag)).normalize()
 
     def _available_amount(self, pos, code: str, current_dt: pd.Timestamp) -> float:
+        """
+        Return shares that can be sold on current_dt.
+
+        Taiwan cash equity settlement is T+2, but shares bought before the sell
+        trade date can be sold before the buy settlement is posted, as long as
+        those shares settle by the sell trade's delivery date. In other words,
+        a buy on T+1 can support a sell on T+2 because the buy settles on T+3
+        and the sell delivers on T+4.
+        """
         total = pos.get_stock_amount(code)
+        delivery_dt = self._settle_date(pd.Timestamp(current_dt).normalize())
         locked = 0.0
-        for _, amt, _ in getattr(pos, "_pending_stock", {}).get(code, []):
-            locked += amt
+        for rel_dt, amt, *_ in getattr(pos, "_pending_stock", {}).get(code, []):
+            if pd.Timestamp(rel_dt).normalize() > delivery_dt:
+                locked += amt
         return max(total - locked, 0.0)
 
     def deal_order(
@@ -279,6 +344,13 @@ class TWExchange(Exchange):
         settle_dt = self._settle_date(current_dt)
 
         if order.direction == Order.BUY:
+            post_cash = pos.get_cash()
+            cash_out = pre_cash - post_cash
+            if cash_out > 0:
+                pos.position["cash"] += cash_out
+                pend_payable = getattr(pos, "_pending_payable", [])
+                pend_payable.append((settle_dt, cash_out))
+                pos._pending_payable = pend_payable
             post_amt = pos.get_stock_amount(order.stock_id)
             delta_amt = max(post_amt - pre_amt, 0.0)
             if delta_amt > 0:
@@ -293,8 +365,8 @@ class TWExchange(Exchange):
                 pend_cash = getattr(pos, "_pending_cash", [])
                 pend_cash.append((settle_dt, cash_in))
                 pos._pending_cash = pend_cash
-                pos.position["cash_delay"] = pos.position.get("cash_delay", 0.0) + cash_in
         else:
             raise NotImplementedError(f"direction {order.direction} is not supported")
 
+        self._sync_cash_delay(pos)
         return float(trade_val), float(trade_cost), float(trade_price)
