@@ -12,6 +12,6 @@
     "num_boost_round": [300, 500, 700, 900],
     "colsample_bytree": [0.6, 0.8, 0.9],
     "subsample": [0.7, 0.8, 0.9],
-    "nthread": [8]
+    "nthread": [64]
   }
 }

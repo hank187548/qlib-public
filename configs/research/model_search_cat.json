@@ -16,6 +16,6 @@
     "leaf_estimation_iterations": [2, 5, 8],
     "bootstrap_type": ["Bernoulli"],
     "task_type": ["CPU"],
-    "thread_count": [4]
+    "thread_count": [64]
   }
 }
