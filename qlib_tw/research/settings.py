@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
-from qlib_tw.data_layout import QLIB_DATA_DIR
+from qlib_tw.data_layout import ALPHA158_OPEN_TO_OPEN_CACHE_DIR, QLIB_DATA_DIR
 
 WORK_DIR = Path(__file__).resolve().parents[2]
 PROVIDER_URI = QLIB_DATA_DIR.resolve()
@@ -74,17 +74,40 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
     },
 }
 
-HANDLER_CONFIGS: Dict[str, Dict[str, str]] = {
+HANDLER_CONFIGS: Dict[str, Dict[str, object]] = {
     "alpha158": {"class": "CachedAlpha158", "module_path": "qlib_tw.research.handlers"},
+    "alpha158_open_to_open": {
+        "class": "CachedAlpha158",
+        "module_path": "qlib_tw.research.handlers",
+        "kwargs": {"cache_dir": str(ALPHA158_OPEN_TO_OPEN_CACHE_DIR)},
+    },
     "alpha360": {"class": "Alpha360", "module_path": "qlib.contrib.data.handler"},
 }
 
 COMBO_CONFIGS = {
     "alpha158_lgb": {"handler": "alpha158", "model": "lgb", "max_instruments": None, "infer_processors": []},
+    "alpha158_open_lgb": {
+        "handler": "alpha158_open_to_open",
+        "model": "lgb",
+        "max_instruments": None,
+        "infer_processors": [],
+    },
     "alpha360_lgb": {"handler": "alpha360", "model": "lgb", "max_instruments": None, "infer_processors": None},
     "alpha158_xgb": {"handler": "alpha158", "model": "xgb", "max_instruments": None, "infer_processors": []},
+    "alpha158_open_xgb": {
+        "handler": "alpha158_open_to_open",
+        "model": "xgb",
+        "max_instruments": None,
+        "infer_processors": [],
+    },
     "alpha360_xgb": {"handler": "alpha360", "model": "xgb", "max_instruments": None, "infer_processors": None},
     "alpha158_cat": {"handler": "alpha158", "model": "cat", "max_instruments": None, "infer_processors": []},
+    "alpha158_open_cat": {
+        "handler": "alpha158_open_to_open",
+        "model": "cat",
+        "max_instruments": None,
+        "infer_processors": [],
+    },
     "alpha360_cat": {"handler": "alpha360", "model": "cat", "max_instruments": None, "infer_processors": None},
 }
 

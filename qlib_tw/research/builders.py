@@ -39,6 +39,7 @@ def build_task_config(
         model_kwargs, model_fit_kwargs = split_model_fit_kwargs(model_kwargs_override)
         model_spec["kwargs"].update(model_kwargs)
     handler_kwargs = deepcopy(BASE_DATA_HANDLER_CONFIG)
+    handler_kwargs.update(deepcopy(handler_spec.get("kwargs", {})))
     selected_instruments = instruments if max_instruments is None else instruments[:max_instruments]
     handler_kwargs["instruments"] = selected_instruments
     if infer_processors is not None:

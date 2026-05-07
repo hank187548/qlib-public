@@ -20,17 +20,53 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from qlib_tw.data_layout import ALPHA158_CACHE_DIR, build_exp_manager_config, resolve_provider_uri, resolve_workspace_path
+from qlib_tw.data_layout import (
+    ALPHA158_CACHE_DIR,
+    ALPHA158_OPEN_TO_OPEN_CACHE_DIR,
+    build_exp_manager_config,
+    resolve_provider_uri,
+    resolve_workspace_path,
+)
 from qlib_tw.research.settings import BASE_DATA_HANDLER_CONFIG, REGION, UNIVERSE
 
 
 LOGGER = logging.getLogger("qlib_tw.research.build_alpha158_cache")
 
+LABEL_PRESETS = {
+    "close_to_close": {
+        "expression": "Ref($close, -2)/Ref($close, -1) - 1",
+        "name": "LABEL0",
+        "default_output_dir": ALPHA158_CACHE_DIR,
+    },
+    "open_to_open": {
+        "expression": "Ref($open, -2)/Ref($open, -1) - 1",
+        "name": "LABEL0",
+        "default_output_dir": ALPHA158_OPEN_TO_OPEN_CACHE_DIR,
+    },
+}
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build precomputed Alpha158 feature/label cache")
     parser.add_argument("--provider-uri", type=Path, default=None, help="Qlib provider uri; defaults to Data/qlib_data")
-    parser.add_argument("--output-dir", type=Path, default=None, help="Cache output dir; defaults to Data/alpha_158_data")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Cache output dir; defaults by label preset",
+    )
+    parser.add_argument(
+        "--label-preset",
+        choices=sorted(LABEL_PRESETS),
+        default="close_to_close",
+        help="Label formula preset. open_to_open uses Ref($open, -2)/Ref($open, -1)-1.",
+    )
+    parser.add_argument(
+        "--label-expression",
+        default=None,
+        help="Optional custom Qlib label expression; overrides --label-preset expression",
+    )
+    parser.add_argument("--label-name", default=None, help="Label column name; defaults by label preset")
     parser.add_argument("--start-time", default=None, help="Feature start date")
     parser.add_argument("--end-time", default=None, help="Feature end date")
     parser.add_argument("--fit-start-time", default=None, help="Processor fit start date metadata")
@@ -45,13 +81,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolved_output_dir(path: Path | None) -> Path:
+def _resolved_output_dir(path: Path | None, label_preset: str) -> Path:
     if path is None:
-        return ALPHA158_CACHE_DIR.resolve()
+        return LABEL_PRESETS[label_preset]["default_output_dir"].resolve()
     resolved = resolve_workspace_path(path)
     if resolved is None:
         raise ValueError(f"Unable to resolve output dir: {path}")
     return resolved
+
+
+def _resolve_label(args: argparse.Namespace) -> tuple[str, str]:
+    preset = LABEL_PRESETS[args.label_preset]
+    expression = args.label_expression or str(preset["expression"])
+    name = args.label_name or str(preset["name"])
+    return expression, name
 
 
 def _clean_frame(df: pd.DataFrame, *, max_abs_value: float | None = None) -> tuple[pd.DataFrame, dict[str, int]]:
@@ -72,8 +115,9 @@ def _clean_frame(df: pd.DataFrame, *, max_abs_value: float | None = None) -> tup
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     provider_uri = resolve_provider_uri(args.provider_uri)
-    output_dir = _resolved_output_dir(args.output_dir)
+    output_dir = _resolved_output_dir(args.output_dir, args.label_preset)
     output_dir.mkdir(parents=True, exist_ok=True)
+    label_expression, label_name = _resolve_label(args)
 
     handler_config = dict(BASE_DATA_HANDLER_CONFIG)
     start_time = args.start_time or str(handler_config["start_time"])
@@ -86,7 +130,11 @@ def main(argv: list[str] | None = None) -> int:
     LOGGER.info("Initialize Qlib, provider uri: %s", provider_uri)
     qlib.init(provider_uri=str(provider_uri), region=REGION, exp_manager=build_exp_manager_config())
     LOGGER.info("Build Alpha158 cache for %d instruments, %s ~ %s", len(instruments), start_time, end_time)
+    LOGGER.info("Label preset=%s expression=%s", args.label_preset, label_expression)
 
+    label_kwargs = {}
+    if args.label_preset != "close_to_close" or args.label_expression is not None or args.label_name is not None:
+        label_kwargs["label"] = ([label_expression], [label_name])
     handler = Alpha158(
         instruments=instruments,
         start_time=start_time,
@@ -96,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         infer_processors=[],
         learn_processors=[],
         price_basis=price_basis,
+        **label_kwargs,
     )
     feature = handler.fetch(col_set="feature", data_key=DataHandlerLP.DK_R)
     label = handler.fetch(col_set="label", data_key=DataHandlerLP.DK_R)
@@ -116,6 +165,9 @@ def main(argv: list[str] | None = None) -> int:
         "fit_start_time": fit_start_time,
         "fit_end_time": fit_end_time,
         "price_basis": price_basis,
+        "label_preset": args.label_preset,
+        "label_expression": label_expression,
+        "label_name": label_name,
         "instrument_count": len(instruments),
         "feature_shape": list(feature.shape),
         "label_shape": list(label.shape),
