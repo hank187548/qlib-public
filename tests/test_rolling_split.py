@@ -4,7 +4,15 @@ import unittest
 
 import pandas as pd
 
-from qlib_tw.research.rolling import RollingSplit, _slice_report_metrics, generate_rolling_splits
+from qlib_tw.research.rolling import (
+    RollingSplit,
+    RollingWalkForwardConfig,
+    _build_strategy_variants,
+    _slice_report_metrics,
+    _sort_strategy_search_rows,
+    _strategy_search_config,
+    generate_rolling_splits,
+)
 
 
 class RollingSplitTest(unittest.TestCase):
@@ -101,6 +109,44 @@ class RollingSplitTest(unittest.TestCase):
         metrics = _slice_report_metrics(report, split)
         expected_net = (1 + 0.10 - 0.01) * (1 - 0.05 - 0.02) - 1
         self.assertAlmostEqual(metrics["net_cumulative_return"], expected_net)
+
+    def test_strategy_variants_skip_invalid_n_drop(self) -> None:
+        config = RollingWalkForwardConfig(
+            name="test",
+            combo="alpha158_lgb",
+            start_date="2016-01-01",
+            end_date="2020-12-31",
+            strategy_search={
+                "topk_values": [1, 2],
+                "n_drop_values": [1, 3],
+                "risk_degree_values": [0.9],
+            },
+        )
+        variants = _build_strategy_variants(config)
+        self.assertEqual([(row["topk"], row["n_drop"]) for row in variants], [(1, 1), (2, 1)])
+
+    def test_strategy_search_sort_uses_tie_break(self) -> None:
+        config = RollingWalkForwardConfig(
+            name="test",
+            combo="alpha158_lgb",
+            start_date="2016-01-01",
+            end_date="2020-12-31",
+            strategy_search={
+                "ranking_metric": "score",
+                "ranking_order": "desc",
+                "tie_break": [
+                    {"metric": "avg_turnover", "order": "asc"},
+                    {"metric": "topk", "order": "desc"},
+                ],
+            },
+        )
+        rows = [
+            {"score": 1.0, "avg_turnover": 0.5, "topk": 50},
+            {"score": 1.0, "avg_turnover": 0.3, "topk": 20},
+            {"score": 0.9, "avg_turnover": 0.1, "topk": 100},
+        ]
+        sorted_rows = _sort_strategy_search_rows(rows, _strategy_search_config(config))
+        self.assertEqual(sorted_rows[0]["topk"], 20)
 
 
 if __name__ == "__main__":

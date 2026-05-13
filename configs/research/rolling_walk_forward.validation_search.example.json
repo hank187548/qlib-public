@@ -1,5 +1,5 @@
 {
-  "name": "alpha158_open_lgb_rolling_0050",
+  "name": "alpha158_open_lgb_rolling_valsearch_0050",
   "combo": "alpha158_open_lgb",
   "start_date": "2016-01-01",
   "end_date": "2026-12-31",
@@ -10,8 +10,7 @@
   "embargo_days": 2,
   "provider_uri": "Data/qlib_data",
   "output_root": "outputs/rolling_walk_forward",
-  "topk": 50,
-  "n_drop": 5,
+  "_note": "When strategy_mode=validation_search, strategy_search chooses topk/n_drop/risk_degree per round.",
   "strategy": "bucket",
   "deal_price": "open",
   "rebalance": "day",
@@ -25,13 +24,13 @@
   "board_lot_size": 1000,
   "trade_unit": 1,
   "region": "tw",
-  "strategy_mode": "fixed",
+  "strategy_mode": "validation_search",
   "strategy_search": {
     "ranking_metric": "risk.excess_return_with_cost.annualized_return",
     "ranking_order": "desc",
-    "topk_values": [50, 100, 200],
-    "n_drop_values": [1, 2, 5],
-    "risk_degree_values": [0.9, 0.95],
+    "topk_values": [15, 30, 50],
+    "n_drop_values": [1, 2, 5, 10],
+    "risk_degree_values": [0.95],
     "tie_break": [
       {
         "metric": "risk.excess_return_with_cost.max_drawdown",

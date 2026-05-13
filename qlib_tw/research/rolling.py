@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import bisect
+import itertools
 import json
 import logging
 import shutil
 from dataclasses import asdict, dataclass
+from functools import cmp_to_key
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -84,6 +86,8 @@ class RollingWalkForwardConfig:
     trade_unit: int = 1
     max_instruments: int | None = None
     model_kwargs: Dict[str, Any] | None = None
+    strategy_mode: str = "fixed"
+    strategy_search: Dict[str, Any] | None = None
     region: str = REGION
 
     @classmethod
@@ -125,6 +129,8 @@ class RollingWalkForwardConfig:
             trade_unit=int(payload.get("trade_unit", 1)),
             max_instruments=int(payload["max_instruments"]) if payload.get("max_instruments") is not None else None,
             model_kwargs=dict(payload.get("model_kwargs", {})) or None,
+            strategy_mode=str(payload.get("strategy_mode", "fixed")),
+            strategy_search=dict(payload.get("strategy_search", {})) or None,
             region=str(payload.get("region", REGION)),
         )
 
@@ -489,10 +495,150 @@ def _build_backtest_task_config(
     )
 
 
-def _build_port_config(config: RollingWalkForwardConfig, task_cfg: dict, first_split: RollingSplit, last_split: RollingSplit) -> dict:
+def _base_strategy_params(config: RollingWalkForwardConfig) -> dict[str, Any]:
+    return {
+        "topk": int(config.topk),
+        "n_drop": int(config.n_drop),
+        "strategy": str(config.strategy),
+        "deal_price": str(config.deal_price),
+        "rebalance": str(config.rebalance),
+        "risk_degree": float(config.risk_degree),
+        "settlement_lag": int(config.settlement_lag),
+    }
+
+
+def _strategy_search_config(config: RollingWalkForwardConfig) -> dict[str, Any]:
+    search_cfg = dict(config.strategy_search or {})
+    return {
+        "ranking_metric": str(search_cfg.get("ranking_metric", "risk.excess_return_with_cost.annualized_return")),
+        "ranking_order": str(search_cfg.get("ranking_order", "desc")),
+        "topk_values": [int(v) for v in search_cfg.get("topk_values", [config.topk])],
+        "n_drop_values": [int(v) for v in search_cfg.get("n_drop_values", [config.n_drop])],
+        "risk_degree_values": [float(v) for v in search_cfg.get("risk_degree_values", [config.risk_degree])],
+        "tie_break": list(
+            search_cfg.get(
+                "tie_break",
+                [
+                    {"metric": "risk.excess_return_with_cost.max_drawdown", "order": "desc"},
+                    {"metric": "avg_turnover", "order": "asc"},
+                    {"metric": "topk", "order": "desc"},
+                    {"metric": "n_drop", "order": "asc"},
+                ],
+            )
+        ),
+    }
+
+
+def _validate_strategy_mode(config: RollingWalkForwardConfig) -> None:
+    if config.strategy_mode not in {"fixed", "validation_search"}:
+        raise ValueError("strategy_mode must be 'fixed' or 'validation_search'")
+    if config.strategy_mode == "validation_search" and config.strategy != "bucket":
+        raise ValueError("validation_search currently supports strategy='bucket' only")
+
+
+def _build_strategy_variants(config: RollingWalkForwardConfig) -> list[dict[str, Any]]:
+    search_cfg = _strategy_search_config(config)
+    variants = []
+    for topk, n_drop, risk_degree in itertools.product(
+        search_cfg["topk_values"],
+        search_cfg["n_drop_values"],
+        search_cfg["risk_degree_values"],
+    ):
+        if int(n_drop) > int(topk):
+            continue
+        variant = _base_strategy_params(config)
+        variant.update(
+            {
+                "topk": int(topk),
+                "n_drop": int(n_drop),
+                "risk_degree": float(risk_degree),
+            }
+        )
+        variants.append(variant)
+    if not variants:
+        raise ValueError("strategy_search produced no valid strategy variants")
+    return variants
+
+
+def _variant_slug(variant: dict[str, Any]) -> str:
+    risk = str(variant["risk_degree"]).replace(".", "p")
+    return f"{variant['strategy']}_topk{variant['topk']}_ndrop{variant['n_drop']}_risk{risk}"
+
+
+def _metric_value(row: dict[str, Any], metric: str) -> float:
+    value = row.get(metric)
+    if value is None:
+        return float("nan")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _compare_metric(left: dict[str, Any], right: dict[str, Any], metric: str, order: str) -> int:
+    left_value = _metric_value(left, metric)
+    right_value = _metric_value(right, metric)
+    left_nan = pd.isna(left_value)
+    right_nan = pd.isna(right_value)
+    if left_nan and right_nan:
+        return 0
+    if left_nan:
+        return 1
+    if right_nan:
+        return -1
+    if left_value == right_value:
+        return 0
+    if order == "asc":
+        return -1 if left_value < right_value else 1
+    return -1 if left_value > right_value else 1
+
+
+def _sort_strategy_search_rows(rows: list[dict[str, Any]], search_cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    ranking_metric = str(search_cfg["ranking_metric"])
+    ranking_order = str(search_cfg["ranking_order"])
+    tie_break = list(search_cfg["tie_break"])
+
+    def _compare(left: dict[str, Any], right: dict[str, Any]) -> int:
+        result = _compare_metric(left, right, ranking_metric, ranking_order)
+        if result != 0:
+            return result
+        for item in tie_break:
+            result = _compare_metric(left, right, str(item["metric"]), str(item.get("order", "desc")))
+            if result != 0:
+                return result
+        return 0
+
+    return sorted(rows, key=cmp_to_key(_compare))
+
+
+def _build_strategy_schedule(splits: list[RollingSplit], selected_params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    schedule = []
+    for split, params in zip(splits, selected_params):
+        schedule.append(
+            {
+                "round_id": int(split.round_id),
+                "start_time": _date_str(split.trade_start),
+                "end_time": _date_str(split.trade_end),
+                "topk": int(params["topk"]),
+                "n_drop": int(params["n_drop"]),
+                "risk_degree": float(params["risk_degree"]),
+            }
+        )
+    return schedule
+
+
+def _build_port_config(
+    config: RollingWalkForwardConfig,
+    task_cfg: dict,
+    start_time: pd.Timestamp,
+    end_time: pd.Timestamp,
+    strategy_params: dict[str, Any],
+    *,
+    strategy_schedule: list[dict[str, Any]] | None = None,
+) -> dict:
     port_config = build_port_analysis_config()
-    port_config["backtest"]["start_time"] = _date_str(first_split.trade_start)
-    port_config["backtest"]["end_time"] = _date_str(last_split.trade_end)
+    port_config["backtest"]["start_time"] = _date_str(start_time)
+    port_config["backtest"]["end_time"] = _date_str(end_time)
     port_config["backtest"]["account"] = config.account
     port_config["backtest"]["exchange_kwargs"]["open_cost"] = config.open_cost
     port_config["backtest"]["exchange_kwargs"]["close_cost"] = config.close_cost
@@ -501,22 +647,26 @@ def _build_port_config(config: RollingWalkForwardConfig, task_cfg: dict, first_s
     apply_strategy_overrides(
         port_config,
         task_cfg,
-        n_drop_override=config.n_drop,
-        topk_override=config.topk,
-        rebalance=config.rebalance,
-        strategy_choice=config.strategy,
-        deal_price=config.deal_price,
+        n_drop_override=int(strategy_params["n_drop"]),
+        topk_override=int(strategy_params["topk"]),
+        rebalance=str(strategy_params["rebalance"]),
+        strategy_choice=str(strategy_params["strategy"]),
+        deal_price=str(strategy_params["deal_price"]),
     )
     strategy_kwargs = port_config["strategy"]["kwargs"]
-    strategy_kwargs["risk_degree"] = config.risk_degree
+    strategy_kwargs["risk_degree"] = float(strategy_params["risk_degree"])
     strategy_kwargs.pop("model", None)
     strategy_kwargs.pop("dataset", None)
     strategy_kwargs["signal"] = "<PRED>"
+    if strategy_schedule is not None:
+        port_config["strategy"]["class"] = "RollingScheduledBucketWeightTopkDropout"
+        port_config["strategy"]["module_path"] = "qlib_tw.trade.custom_strategy"
+        strategy_kwargs["strategy_schedule"] = strategy_schedule
 
     exchange_kwargs = port_config["backtest"]["exchange_kwargs"]["exchange"]["kwargs"]
     exchange_kwargs["odd_lot_min_cost"] = config.odd_lot_min_cost
     exchange_kwargs["board_lot_size"] = config.board_lot_size
-    exchange_kwargs["settlement_lag"] = config.settlement_lag
+    exchange_kwargs["settlement_lag"] = int(strategy_params["settlement_lag"])
     return port_config
 
 
@@ -567,6 +717,79 @@ def _extract_summary_metrics(recorder) -> Dict[str, Any]:
     return metrics
 
 
+def _run_validation_strategy_search(
+    config: RollingWalkForwardConfig,
+    task_cfg: dict,
+    split: RollingSplit,
+    valid_pred: pd.DataFrame,
+    valid_label: pd.DataFrame,
+    output_root: Path,
+    variants: list[dict[str, Any]],
+    search_cfg: dict[str, Any],
+    *,
+    recorder_api,
+    port_record_cls,
+) -> dict[str, Any]:
+    experiment_name = f"rolling_strategy_search_{config.name}"
+    rows: list[dict[str, Any]] = []
+    search_dir = output_root / "strategy_search"
+    search_dir.mkdir(parents=True, exist_ok=True)
+
+    for index, variant in enumerate(variants, start=1):
+        variant_slug = _variant_slug(variant)
+        LOGGER.info("Round %d validation strategy search %d/%d: %s", split.round_id, index, len(variants), variant_slug)
+        port_config = _build_port_config(
+            config,
+            task_cfg,
+            split.valid_start,
+            split.valid_end,
+            variant,
+        )
+        _ensure_no_active_mlflow_run()
+        with recorder_api.start(experiment_name=experiment_name):
+            current_recorder = recorder_api.get_recorder()
+            current_recorder.set_tags(
+                rolling_name=config.name,
+                round_id=str(split.round_id),
+                variant_slug=variant_slug,
+            )
+            current_recorder.log_params(
+                strategy_mode=config.strategy_mode,
+                round_id=split.round_id,
+                validation_start=_date_str(split.valid_start),
+                validation_end=_date_str(split.valid_end),
+                **variant,
+            )
+            current_recorder.save_objects(**{"pred.pkl": valid_pred, "label.pkl": valid_label})
+            port_rec = port_record_cls(current_recorder, port_config, "day")
+            port_rec.generate()
+            recorder_id = current_recorder.id
+
+        recorder = recorder_api.get_recorder(experiment_name=experiment_name, recorder_id=recorder_id)
+        summary_metrics = _extract_summary_metrics(recorder)
+        row = {
+            "round_id": split.round_id,
+            "variant_index": index,
+            "variant_slug": variant_slug,
+            "strategy_search_experiment": experiment_name,
+            "strategy_search_recorder_id": recorder_id,
+            **variant,
+            **summary_metrics,
+        }
+        row["ranking_metric"] = search_cfg["ranking_metric"]
+        row["ranking_value"] = _metric_value(row, str(search_cfg["ranking_metric"]))
+        rows.append(row)
+
+    rows = _sort_strategy_search_rows(rows, search_cfg)
+    _save_rows_csv(rows, search_dir / f"round_{split.round_id:03d}_strategy_search.csv")
+    _save_json(rows, search_dir / f"round_{split.round_id:03d}_strategy_search.json")
+    if not rows:
+        raise RuntimeError(f"No validation strategy search rows were produced for round {split.round_id}")
+    best = rows[0]
+    _save_json(best, search_dir / f"round_{split.round_id:03d}_best_strategy.json")
+    return best
+
+
 def _write_split_outputs(plan: RollingSplitPlan, output_root: Path) -> None:
     _save_rows_csv([split.to_record() for split in plan.splits], output_root / "splits.csv")
     _save_json([split.to_record() for split in plan.splits], output_root / "splits.json")
@@ -575,6 +798,7 @@ def _write_split_outputs(plan: RollingSplitPlan, output_root: Path) -> None:
 
 
 def run_rolling_walk_forward(config: RollingWalkForwardConfig, *, dry_run: bool = False) -> Dict[str, Any]:
+    _validate_strategy_mode(config)
     output_root = config.resolved_output_root
     output_root.mkdir(parents=True, exist_ok=True)
     paths = _make_paths(output_root)
@@ -630,6 +854,10 @@ def run_rolling_walk_forward(config: RollingWalkForwardConfig, *, dry_run: bool 
     round_rows: list[dict[str, Any]] = []
     oos_predictions: list[pd.DataFrame] = []
     oos_labels: list[pd.DataFrame] = []
+    selected_strategy_params: list[dict[str, Any]] = []
+    strategy_search_rows: list[dict[str, Any]] = []
+    search_cfg = _strategy_search_config(config)
+    strategy_variants = _build_strategy_variants(config) if config.strategy_mode == "validation_search" else []
 
     for split in split_plan.splits:
         LOGGER.info(
@@ -662,6 +890,28 @@ def run_rolling_walk_forward(config: RollingWalkForwardConfig, *, dry_run: bool 
         valid_metrics = calc_ic_metrics(valid_pred, valid_label)
         trade_metrics = calc_ic_metrics(trade_pred, trade_label)
 
+        selected_params = _base_strategy_params(config)
+        best_strategy_row: dict[str, Any] | None = None
+        if config.strategy_mode == "validation_search":
+            best_strategy_row = _run_validation_strategy_search(
+                config,
+                task_cfg,
+                split,
+                valid_pred,
+                valid_label,
+                output_root,
+                strategy_variants,
+                search_cfg,
+                recorder_api=R,
+                port_record_cls=PortAnaRecord,
+            )
+            selected_params = {
+                key: best_strategy_row[key]
+                for key in ("topk", "n_drop", "strategy", "deal_price", "rebalance", "risk_degree", "settlement_lag")
+            }
+            strategy_search_rows.append(best_strategy_row)
+        selected_strategy_params.append(selected_params)
+
         if trade_pred.index.duplicated().any():
             raise RuntimeError(f"Duplicate trade prediction index in round {split.round_id}")
         trade_pred.to_pickle(predictions_dir / f"round_{split.round_id:03d}_pred.pkl")
@@ -674,6 +924,17 @@ def run_rolling_walk_forward(config: RollingWalkForwardConfig, *, dry_run: bool 
                 **split.to_record(),
                 "train_experiment": train_experiment,
                 "train_recorder_id": train_recorder_id,
+                "strategy_mode": config.strategy_mode,
+                "selected_topk": int(selected_params["topk"]),
+                "selected_n_drop": int(selected_params["n_drop"]),
+                "selected_strategy": str(selected_params["strategy"]),
+                "selected_deal_price": str(selected_params["deal_price"]),
+                "selected_rebalance": str(selected_params["rebalance"]),
+                "selected_risk_degree": float(selected_params["risk_degree"]),
+                "selected_settlement_lag": int(selected_params["settlement_lag"]),
+                "strategy_search_ranking_metric": search_cfg["ranking_metric"] if best_strategy_row else None,
+                "strategy_search_ranking_value": best_strategy_row["ranking_value"] if best_strategy_row else None,
+                "strategy_search_recorder_id": best_strategy_row["strategy_search_recorder_id"] if best_strategy_row else None,
                 **{f"valid_{key}": value for key, value in valid_metrics.items()},
                 **{f"trade_{key}": value for key, value in trade_metrics.items()},
             }
@@ -692,7 +953,23 @@ def run_rolling_walk_forward(config: RollingWalkForwardConfig, *, dry_run: bool 
     last_split = split_plan.splits[-1]
     backtest_task_cfg = _build_backtest_task_config(config, universe, first_split, last_split)
     backtest_dataset = init_instance_by_config(backtest_task_cfg["dataset"])
-    port_config = _build_port_config(config, backtest_task_cfg, first_split, last_split)
+    strategy_schedule = None
+    final_strategy_params = _base_strategy_params(config)
+    if config.strategy_mode == "validation_search":
+        strategy_schedule = _build_strategy_schedule(split_plan.splits, selected_strategy_params)
+        final_strategy_params = selected_strategy_params[0]
+        _save_rows_csv(strategy_schedule, output_root / "selected_strategy_schedule.csv")
+        _save_json(strategy_schedule, output_root / "selected_strategy_schedule.json")
+        _save_rows_csv(strategy_search_rows, output_root / "selected_strategy_results.csv")
+        _save_json(strategy_search_rows, output_root / "selected_strategy_results.json")
+    port_config = _build_port_config(
+        config,
+        backtest_task_cfg,
+        first_split.trade_start,
+        last_split.trade_end,
+        final_strategy_params,
+        strategy_schedule=strategy_schedule,
+    )
     backtest_experiment = f"rolling_backtest_{config.name}"
     _ensure_no_active_mlflow_run()
     with R.start(experiment_name=backtest_experiment):
@@ -703,13 +980,14 @@ def run_rolling_walk_forward(config: RollingWalkForwardConfig, *, dry_run: bool 
             combo=config.combo,
             backtest_start=_date_str(first_split.trade_start),
             backtest_end=_date_str(last_split.trade_end),
-            topk=config.topk,
-            n_drop=config.n_drop,
-            strategy=config.strategy,
-            deal_price=config.deal_price,
-            rebalance=config.rebalance,
-            risk_degree=config.risk_degree,
-            settlement_lag=config.settlement_lag,
+            strategy_mode=config.strategy_mode,
+            topk=final_strategy_params["topk"],
+            n_drop=final_strategy_params["n_drop"],
+            strategy=final_strategy_params["strategy"],
+            deal_price=final_strategy_params["deal_price"],
+            rebalance=final_strategy_params["rebalance"],
+            risk_degree=final_strategy_params["risk_degree"],
+            settlement_lag=final_strategy_params["settlement_lag"],
         )
         current_recorder.save_objects(**{"pred.pkl": rolling_pred, "label.pkl": rolling_label})
         port_rec = PortAnaRecord(current_recorder, port_config, "day")
@@ -734,6 +1012,8 @@ def run_rolling_walk_forward(config: RollingWalkForwardConfig, *, dry_run: bool 
             "backtest_recorder_id": backtest_recorder_id,
             "backtest_start": _date_str(first_split.trade_start),
             "backtest_end": _date_str(last_split.trade_end),
+            "strategy_mode": config.strategy_mode,
+            "strategy_search_config": search_cfg if config.strategy_mode == "validation_search" else None,
             "summary_metrics": summary_metrics,
         },
         output_root / "rolling_backtest_summary.json",

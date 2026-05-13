@@ -251,6 +251,19 @@ Formal rolling backtest:
   --config configs/research/rolling_walk_forward.example.json
 ```
 
+Strategy mode:
+- `fixed`: retrain the model each round, keep one fixed strategy config.
+- `validation_search`: retrain the model each round, search `topk`, `n_drop`, and `risk_degree` on that round's validation window, then trade the next quarter with the selected parameters.
+
+The validation-search mode keeps `deal_price`, `rebalance`, costs, and settlement fixed for the whole continuous backtest. It currently supports the bucket strategy only, so the final OOS backtest can remain one continuous portfolio while applying each round's selected strategy schedule.
+
+Validation-search example:
+
+```bash
+.venv/bin/python scripts/research/rolling_walk_forward.py \
+  --config configs/research/rolling_walk_forward.validation_search.example.json
+```
+
 Outputs are written to:
 
 - `outputs/rolling_walk_forward/<name>/`
@@ -261,6 +274,8 @@ Important files:
 - `round_results.csv`
 - `rolling_oos_pred.csv`
 - `rolling_backtest_summary.json`
+- `selected_strategy_schedule.csv` when `strategy_mode=validation_search`
+- `strategy_search/round_<id>_strategy_search.csv` when `strategy_mode=validation_search`
 
 The official rolling result is one continuous backtest over the merged OOS
 predictions. Per-round return, cost, and turnover are slices of that continuous

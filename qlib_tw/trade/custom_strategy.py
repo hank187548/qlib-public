@@ -242,3 +242,48 @@ class BucketWeightTopkDropout(TopkDropoutStrategy):
                 buy_orders.append(buy_order)
 
         return TradeDecisionWO(sell_orders + buy_orders, self)
+
+
+class RollingScheduledBucketWeightTopkDropout(BucketWeightTopkDropout):
+    """BucketWeightTopkDropout with per-period topk/n_drop/risk_degree parameters."""
+
+    def __init__(self, *, strategy_schedule: list[dict] | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self.strategy_schedule = self._normalize_schedule(strategy_schedule or [])
+
+    @staticmethod
+    def _normalize_schedule(strategy_schedule: list[dict]) -> list[dict]:
+        normalized = []
+        for item in strategy_schedule:
+            entry = dict(item)
+            entry["start_time"] = pd.Timestamp(entry["start_time"]).normalize()
+            entry["end_time"] = pd.Timestamp(entry["end_time"]).normalize()
+            normalized.append(entry)
+        normalized.sort(key=lambda row: row["start_time"])
+        return normalized
+
+    def _apply_schedule(self, trade_date: pd.Timestamp) -> None:
+        trade_date = pd.Timestamp(trade_date).normalize()
+        selected = None
+        for item in self.strategy_schedule:
+            if item["start_time"] <= trade_date <= item["end_time"]:
+                selected = item
+                break
+        if selected is None:
+            return
+
+        if "topk" in selected:
+            self.topk = int(selected["topk"])
+        if "n_drop" in selected:
+            self.n_drop = int(selected["n_drop"])
+        if "risk_degree" in selected:
+            self.risk_degree = float(selected["risk_degree"])
+        if "bucket_weights" in selected:
+            bucket_weights = selected["bucket_weights"]
+            self.bucket_weights = list(bucket_weights) if bucket_weights is not None else None
+
+    def generate_trade_decision(self, execute_result=None):
+        trade_step = self.trade_calendar.get_trade_step()
+        trade_start_time, _ = self.trade_calendar.get_step_time(trade_step)
+        self._apply_schedule(trade_start_time)
+        return super().generate_trade_decision(execute_result=execute_result)
