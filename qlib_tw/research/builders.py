@@ -31,6 +31,8 @@ def build_task_config(
     max_instruments: int | None = None,
     infer_processors: List[Dict[str, object]] | None = None,
     model_kwargs_override: Dict[str, object] | None = None,
+    segments_override: Dict[str, tuple[str, str]] | None = None,
+    handler_kwargs_override: Dict[str, object] | None = None,
 ) -> Dict[str, object]:
     handler_spec = HANDLER_CONFIGS[handler_key]
     model_spec = deepcopy(MODEL_CONFIGS[model_key])
@@ -40,6 +42,8 @@ def build_task_config(
         model_spec["kwargs"].update(model_kwargs)
     handler_kwargs = deepcopy(BASE_DATA_HANDLER_CONFIG)
     handler_kwargs.update(deepcopy(handler_spec.get("kwargs", {})))
+    if handler_kwargs_override:
+        handler_kwargs.update(deepcopy(handler_kwargs_override))
     selected_instruments = instruments if max_instruments is None else instruments[:max_instruments]
     handler_kwargs["instruments"] = selected_instruments
     if infer_processors is not None:
@@ -53,7 +57,7 @@ def build_task_config(
                 "module_path": handler_spec["module_path"],
                 "kwargs": handler_kwargs,
             },
-            "segments": deepcopy(SEGMENTS),
+            "segments": deepcopy(segments_override or SEGMENTS),
         },
     }
     return {"model": model_spec, "dataset": dataset_cfg, "model_fit_kwargs": model_fit_kwargs}

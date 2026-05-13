@@ -299,6 +299,9 @@ def dump_report_frames(
         LOGGER.info("Indicator time series exported to %s", indicator_daily_path)
 
     cumulative_return = (1 + report_df["return"]).prod() - 1
+    net_cumulative_return = (
+        (1 + report_df["return"] - report_df["cost"]).prod() - 1 if "cost" in report_df.columns else None
+    )
     benchmark_return = (1 + report_df["bench"]).prod() - 1
     trade_days = int((report_df["total_turnover"] > 0).sum())
     summary_lines = [
@@ -309,6 +312,9 @@ def dump_report_frames(
         f"Test range: {segments['test'][0]} ~ {segments['test'][1]}",
         f"Backtest period: {port_config['backtest']['start_time']} ~ {port_config['backtest']['end_time']}",
         f"Strategy cumulative return: {cumulative_return:.4%}",
+        f"Strategy net cumulative return: {net_cumulative_return:.4%}"
+        if net_cumulative_return is not None
+        else "Strategy net cumulative return: nan",
         f"Benchmark cumulative return: {benchmark_return:.4%}",
         f"Trading days: {trade_days}",
     ]

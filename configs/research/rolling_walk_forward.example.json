@@ -1,0 +1,31 @@
+{
+  "name": "alpha158_open_lgb_rolling_0050",
+  "combo": "alpha158_open_lgb",
+  "start_date": "2016-01-01",
+  "end_date": "2026-12-31",
+  "train_years": 3,
+  "valid_quarters": 2,
+  "trade_quarters": 1,
+  "step_quarters": 1,
+  "embargo_days": 2,
+  "provider_uri": "Data/qlib_data",
+  "output_root": "outputs/rolling_walk_forward",
+  "topk": 50,
+  "n_drop": 5,
+  "strategy": "bucket",
+  "deal_price": "open",
+  "rebalance": "day",
+  "risk_degree": 0.95,
+  "settlement_lag": 2,
+  "account": 10000000,
+  "open_cost": 0.00092625,
+  "close_cost": 0.00392625,
+  "min_cost": 20,
+  "odd_lot_min_cost": 1,
+  "board_lot_size": 1000,
+  "trade_unit": 1,
+  "region": "tw",
+  "model_kwargs": {
+    "num_threads": 128
+  }
+}

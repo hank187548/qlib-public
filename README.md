@@ -210,6 +210,62 @@ Important files:
 - `strategy_variants.json`
 - `resolved_config.json`
 
+## Rolling Walk-Forward Backtest
+
+Rolling walk-forward is a separate entrypoint. It does not change the existing
+single train / validation / test workflow.
+
+Default split logic:
+- train window: fixed 3 years
+- validation window: fixed 2 quarters
+- trade window: fixed 1 quarter
+- retrain step: 1 quarter
+- embargo: 2 trading days between train/validation and validation/trade
+
+Dates are aligned with the provider trading calendar from:
+
+- `Data/qlib_data/calendars/day.txt`
+
+The default Alpha158 T+2 labels use future prices:
+
+- close-to-close: `Ref($close, -2)/Ref($close, -1)-1`
+- open-to-open: `Ref($open, -2)/Ref($open, -1)-1`
+
+That means a sample at date T uses returns from T+1 to T+2. The rolling splitter
+therefore removes the last 2 trading sessions before the next segment. This
+prevents the last train labels from using validation prices, and prevents the
+last validation labels from using trade-period prices.
+
+Dry-run only prints and writes the calendar-aligned splits:
+
+```bash
+.venv/bin/python scripts/research/rolling_walk_forward.py \
+  --config configs/research/rolling_walk_forward.example.json \
+  --dry-run
+```
+
+Formal rolling backtest:
+
+```bash
+.venv/bin/python scripts/research/rolling_walk_forward.py \
+  --config configs/research/rolling_walk_forward.example.json
+```
+
+Outputs are written to:
+
+- `outputs/rolling_walk_forward/<name>/`
+
+Important files:
+- `splits.csv`
+- `skipped_rounds.csv`
+- `round_results.csv`
+- `rolling_oos_pred.csv`
+- `rolling_backtest_summary.json`
+
+The official rolling result is one continuous backtest over the merged OOS
+predictions. Per-round return, cost, and turnover are slices of that continuous
+report, not reset-to-cash mini backtests.
+
 ## Output Layout
 
 The main output folders are:
@@ -224,6 +280,8 @@ The main output folders are:
   - model-search outputs
 - `outputs/backtest_search/`
   - strategy / backtest-search outputs
+- `outputs/rolling_walk_forward/`
+  - fixed-window rolling retrain, merged OOS prediction, and continuous backtest outputs
 - `outputs/paper_trading/`
   - paper-trading and replay outputs
 - `outputs/best_run/`
