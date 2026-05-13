@@ -717,6 +717,44 @@ def _extract_summary_metrics(recorder) -> Dict[str, Any]:
     return metrics
 
 
+def _series_corr(left: pd.Series, right: pd.Series) -> float | None:
+    valid = left.notna() & right.notna()
+    if int(valid.sum()) < 2:
+        return None
+    value = left[valid].corr(right[valid])
+    return float(value) if pd.notna(value) else None
+
+
+def _build_round_diagnostics(round_rows: list[dict[str, Any]], search_cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not round_rows:
+        return {
+            "round_count": 0,
+            "oos_net_return_non_null_round_count": 0,
+            "oos_net_return_negative_round_count": 0,
+            "oos_net_return_positive_round_count": 0,
+            "validation_ranking_metric": str(search_cfg["ranking_metric"]) if search_cfg else None,
+            "validation_best_ranking_non_null_round_count": 0,
+            "validation_best_ranking_negative_round_count": 0,
+            "validation_best_ranking_positive_round_count": 0,
+            "validation_ranking_vs_oos_net_return_corr": None,
+        }
+
+    frame = pd.DataFrame(round_rows)
+    oos_net_return = pd.to_numeric(frame.get("net_cumulative_return"), errors="coerce")
+    validation_ranking = pd.to_numeric(frame.get("strategy_search_ranking_value"), errors="coerce")
+    return {
+        "round_count": int(len(frame)),
+        "oos_net_return_non_null_round_count": int(oos_net_return.notna().sum()),
+        "oos_net_return_negative_round_count": int((oos_net_return < 0).sum()),
+        "oos_net_return_positive_round_count": int((oos_net_return > 0).sum()),
+        "validation_ranking_metric": str(search_cfg["ranking_metric"]) if search_cfg else None,
+        "validation_best_ranking_non_null_round_count": int(validation_ranking.notna().sum()),
+        "validation_best_ranking_negative_round_count": int((validation_ranking < 0).sum()),
+        "validation_best_ranking_positive_round_count": int((validation_ranking > 0).sum()),
+        "validation_ranking_vs_oos_net_return_corr": _series_corr(validation_ranking, oos_net_return),
+    }
+
+
 def _run_validation_strategy_search(
     config: RollingWalkForwardConfig,
     task_cfg: dict,
@@ -1000,6 +1038,10 @@ def run_rolling_walk_forward(config: RollingWalkForwardConfig, *, dry_run: bool 
         row.update(_slice_report_metrics(report_df, split))
 
     summary_metrics = _extract_summary_metrics(recorder)
+    round_diagnostics = _build_round_diagnostics(
+        round_rows,
+        search_cfg if config.strategy_mode == "validation_search" else None,
+    )
     _save_rows_csv(round_rows, output_root / "round_results.csv")
     _save_json(round_rows, output_root / "round_results.json")
     _save_json(
@@ -1015,6 +1057,7 @@ def run_rolling_walk_forward(config: RollingWalkForwardConfig, *, dry_run: bool 
             "strategy_mode": config.strategy_mode,
             "strategy_search_config": search_cfg if config.strategy_mode == "validation_search" else None,
             "summary_metrics": summary_metrics,
+            "round_diagnostics": round_diagnostics,
         },
         output_root / "rolling_backtest_summary.json",
     )
