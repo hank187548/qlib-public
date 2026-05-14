@@ -1,7 +1,9 @@
 .venv/
+.venv_server5/
 .vscode/
 __pycache__/
 *.pyc
+requirements-lock.txt
 
 .env
 .env.*
