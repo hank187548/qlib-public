@@ -51,6 +51,6 @@
     ]
   },
   "model_kwargs": {
-    "thread_count": 32
+    "thread_count": 128
   }
 }
